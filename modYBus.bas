@@ -7,26 +7,26 @@ Option Explicit
 
 Private Const EPS_ZERO As Double = 0.000000000001
 
-Private Sub AddSeriesElement(ByRef G() As Double, ByRef B() As Double, ByVal i As Long, ByVal j As Long, ByVal g As Double, ByVal b As Double)
-    G(i, i) = G(i, i) + g
-    B(i, i) = B(i, i) + b
+Private Sub AddSeriesElement(ByRef G() As Double, ByRef B() As Double, ByVal i As Long, ByVal j As Long, ByVal gSeries As Double, ByVal bSeries As Double)
+    G(i, i) = G(i, i) + gSeries
+    B(i, i) = B(i, i) + bSeries
 
-    G(j, j) = G(j, j) + g
-    B(j, j) = B(j, j) + b
+    G(j, j) = G(j, j) + gSeries
+    B(j, j) = B(j, j) + bSeries
 
-    G(i, j) = G(i, j) - g
-    B(i, j) = B(i, j) - b
+    G(i, j) = G(i, j) - gSeries
+    B(i, j) = B(i, j) - bSeries
 
-    G(j, i) = G(j, i) - g
-    B(j, i) = B(j, i) - b
+    G(j, i) = G(j, i) - gSeries
+    B(j, i) = B(j, i) - bSeries
 End Sub
 
-Private Sub AddShuntToDiagonal(ByRef G() As Double, ByRef B() As Double, ByVal i As Long, ByVal g As Double, ByVal b As Double)
-    G(i, i) = G(i, i) + g
-    B(i, i) = B(i, i) + b
+Private Sub AddShuntToDiagonal(ByRef G() As Double, ByRef B() As Double, ByVal i As Long, ByVal gShunt As Double, ByVal bShunt As Double)
+    G(i, i) = G(i, i) + gShunt
+    B(i, i) = B(i, i) + bShunt
 End Sub
 
-Private Function TrySeriesAdmittance(ByVal r As Double, ByVal x As Double, ByRef g As Double, ByRef b As Double) As Boolean
+Private Function TrySeriesAdmittance(ByVal r As Double, ByVal x As Double, ByRef gSeries As Double, ByRef bSeries As Double) As Boolean
     Dim den As Double
 
     den = r * r + x * x
@@ -36,8 +36,8 @@ Private Function TrySeriesAdmittance(ByVal r As Double, ByVal x As Double, ByRef
     End If
 
     ' 1 / (r + jx) = (r - jx) / (r^2 + x^2)
-    g = r / den
-    b = -x / den
+    gSeries = r / den
+    bSeries = -x / den
     TrySeriesAdmittance = True
 End Function
 
