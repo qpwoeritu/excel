@@ -1,26 +1,26 @@
 Attribute VB_Name = "modIO"
 '==========================
 ' Modul: modIO
-' Posledn· ˙prava: 15.02.2026 15:15 (Bratislava)
+' Posledn prava: 15.02.2026 15:15 (Bratislava)
 '==========================
 ' 25.01.2026 21:30:03 (CET)
 Option Explicit
 
-' NaËÌtanie d·t uzlov z listu "uzly"
-' SkutoËnÈ hodnoty -> prepoËet do pomern˝ch (p.u.)
+' Natanie dt uzlov z listu "uzly"
+' Skuton hodnoty -> prepoet do pomernch (p.u.)
 '
-' Form·t listu "uzly":
-'   riadok 2: hlaviËka
-'   riadky 3.. : d·ta
-'   B: N·zov uzla
+' Formt listu "uzly":
+'   riadok 2: hlavika
+'   riadky 3.. : dta
+'   B: Nzov uzla
 '   C: Typ (Slack / PQ)
 '   D: |V| [kV]
 '   E: ? [deg]
 '   F: P [MW]
 '   G: Q [Mvar]
 '
-' SBase_MVA, UBase_kV s˙ b·zovÈ hodnoty zo "index"
-' UBase_VN, UBase_NN - novÈ b·zy pre rozlÌöenie hladÌn
+' SBase_MVA a bazove napatia sa nacitavaju zo sheetu "data".
+' Pre kazdy uzol sa baza urcuje z pola BaseVoltages().
 Public Sub LoadBusData( _
     ByRef nBuses As Long, _
     ByRef BusNames() As String, _
@@ -31,8 +31,7 @@ Public Sub LoadBusData( _
     ByRef Qspec() As Double, _
     ByRef BusBaseKV() As Double, _
     ByVal SBase_MVA As Double, _
-    ByVal UBase_VN As Double, _
-    ByVal UBase_NN As Double)
+    ByRef BaseVoltages() As Double)
 
     Dim ws As Worksheet
     Dim lastRow As Long
@@ -43,13 +42,13 @@ Public Sub LoadBusData( _
     
     Set ws = ThisWorkbook.Worksheets("uzly")
     
-    ' posledn˝ riadok podæa stÂpca B (N·zov uzla)
+    ' posledn riadok poda stpca B (Nzov uzla)
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     If lastRow < 3 Then
-        Err.Raise vbObjectError + 1, , "V liste 'uzly' nie s˙ ûiadne uzly (oËak·vam d·ta od riadku 3)."
+        Err.Raise vbObjectError + 1, , "V liste 'uzly' nie s iadne uzly (oakvam dta od riadku 3)."
     End If
     
-    ' prvÈ d·ta s˙ v riadku 3 => poËet uzlov
+    ' prv dta s v riadku 3 => poet uzlov
     nBuses = lastRow - 2
     
     ReDim BusNames(1 To nBuses)
@@ -61,8 +60,8 @@ Public Sub LoadBusData( _
     ReDim BusBaseKV(1 To nBuses)
     
     For i = 1 To nBuses
-        ' riadok s d·tami = 2 + i (3,4,...)
-        BusNames(i) = CStr(ws.Cells(2 + i, 2).Value)   ' B: N·zov uzla
+        ' riadok s dtami = 2 + i (3,4,...)
+        BusNames(i) = CStr(ws.Cells(2 + i, 2).Value)   ' B: Nzov uzla
         
         t = CStr(ws.Cells(2 + i, 3).Value)             ' C: Typ
         Select Case UCase$(Trim$(t))
@@ -76,25 +75,25 @@ Public Sub LoadBusData( _
                 BusTypes(i) = btPQ
         End Select
         
-        ' naËÌtanie skutoËn˝ch hodnÙt
+        ' natanie skutonch hodnt
         V_kV = ParseDouble(ws.Cells(2 + i, 4).Value)   ' D: |V| [kV]
         P_MW = ParseDouble(ws.Cells(2 + i, 6).Value)   ' F: P [MW]
         Q_mvar = ParseDouble(ws.Cells(2 + i, 7).Value) ' G: Q [Mvar]
         
-        ' UrËenie b·zy pre uzol
-        busBase = GetBaseVoltageForBus(V_kV, UBase_VN, UBase_NN)
+        ' Urenie bzy pre uzol
+        busBase = GetBaseVoltageForBus(V_kV, BaseVoltages)
         BusBaseKV(i) = busBase
         
-        ' prepoËet do p.u.
+        ' prepoet do p.u.
         If busBase <> 0# Then
             Vmag(i) = V_kV / busBase
         Else
             Vmag(i) = 1#
         End If
         
-        ' PÙvodne naËÌtanie uhla zo stÂpca E:
+        ' Pvodne natanie uhla zo stpca E:
         ' Vang(i) = ParseDouble(ws.Cells(2 + i, 5).Value) * DEG2RAD
-        ' Zmena (27.12.2025): Uhol pre prv˝ krok je vûdy 0
+        ' Zmena (27.12.2025): Uhol pre prv krok je vdy 0
         Vang(i) = 0#
         
         If SBase_MVA <> 0# Then
@@ -107,10 +106,10 @@ Public Sub LoadBusData( _
     Next i
 End Sub
 
-' NaËÌtanie d·t transform·torov z listu "transformatory"
+' Natanie dt transformtorov z listu "transformatory"
 ' C: Uzol od, D: Uzol do
-' Detekcia stÂpcov pre Rk, Xk, G0, B0, Prevod
-' Ak je prÌtomn˝ stÂpec Zk (napr. na pozÌcii 18), posun +1.
+' Detekcia stpcov pre Rk, Xk, G0, B0, Prevod
+' Ak je prtomn stpec Zk (napr. na pozcii 18), posun +1.
 Public Sub LoadTransformerData( _
     ByRef nTrafo As Long, _
     ByRef TrFrom() As Long, _
@@ -153,7 +152,7 @@ Public Sub LoadTransformerData( _
     ReDim TrB(1 To nTrafo)
     ReDim TrRatio(1 To nTrafo)
     
-    ' Detekcia posunu stÂpcov:
+    ' Detekcia posunu stpcov:
     If InStr(1, LCase(CStr(ws.Cells(2, 18).Value)), "zk") > 0 Then
         colOffset = 1
     Else
@@ -176,7 +175,7 @@ Public Sub LoadTransformerData( _
         End If
         TrTo(i) = idxTo
         
-        ' B·za impedancie na strane prim·ru (uzol od)
+        ' Bza impedancie na strane primru (uzol od)
         Ubase1 = BusBaseKV(idxFrom)
         
         If SBase_MVA <> 0# Then
@@ -210,8 +209,8 @@ Public Sub LoadTransformerData( _
     Next i
 End Sub
 
-' NaËÌtanie d·t reaktorov z listu "reaktory"
-' B: OznaËenie, C: Uzol od, D: Uzol do, H: R[ohm], I: X[ohm]
+' Natanie dt reaktorov z listu "reaktory"
+' B: Oznaenie, C: Uzol od, D: Uzol do, H: R[ohm], I: X[ohm]
 Public Sub LoadReactorData( _
     ByRef nReaktory As Long, _
     ByRef ReaktorName() As String, _
@@ -265,7 +264,7 @@ Public Sub LoadReactorData( _
         End If
         ReaktorTo(i) = idxTo
         
-        ' ImpedanËn· b·za podæa uzla "od"
+        ' Impedann bza poda uzla "od"
         Ubase = BusBaseKV(idxFrom)
         If SBase_MVA <> 0# Then
             Zbase = (Ubase * Ubase) / SBase_MVA
@@ -286,9 +285,9 @@ Public Sub LoadReactorData( _
     Next i
 End Sub
 
-' NaËÌtanie d·t dif. reaktorov z listu "dif_reaktory"
+' Natanie dt dif. reaktorov z listu "dif_reaktory"
 ' C: Uzol od, D: Uzol do, I: R[ohm], J: X[ohm]
-' HlaviËka: riadok 3, d·ta od 4
+' Hlavika: riadok 3, dta od 4
 Public Sub LoadDifReactorData( _
     ByRef nDifReaktory As Long, _
     ByRef DifReaktorName() As String, _
@@ -326,7 +325,7 @@ Public Sub LoadDifReactorData( _
     ReDim DifReaktorX(1 To nDifReaktory)
     
     For i = 1 To nDifReaktory
-        ' Name nie je v öpecifik·cii, ale pole existuje. D·me tam "DR" + index alebo pr·zdny string?
+        ' Name nie je v pecifikcii, ale pole existuje. Dme tam "DR" + index alebo przdny string?
         DifReaktorName(i) = "DR" & i
         fromName = CStr(ws.Cells(i + 3, 3).Value)       ' C
         toName = CStr(ws.Cells(i + 3, 4).Value)         ' D
@@ -343,7 +342,7 @@ Public Sub LoadDifReactorData( _
         End If
         DifReaktorTo(i) = idxTo
         
-        ' ImpedanËn· b·za podæa uzla "od"
+        ' Impedann bza poda uzla "od"
         Ubase = BusBaseKV(idxFrom)
         If SBase_MVA <> 0# Then
             Zbase = (Ubase * Ubase) / SBase_MVA
@@ -364,9 +363,9 @@ Public Sub LoadDifReactorData( _
     Next i
 End Sub
 
-' NaËÌtanie kompenz·cie z listu "kompenz·cia"
-' B: N·zov, C: Uzol, N: Status (1/0), P: X_L[ohm], Q: X_C[ohm]
-' HlaviËka: riadok 3, d·ta od 4
+' Natanie kompenzcie z listu "kompenzcia"
+' B: Nzov, C: Uzol, N: Status (1/0), P: X_L[ohm], Q: X_C[ohm]
+' Hlavika: riadok 3, dta od 4
 Public Sub LoadCompData( _
     ByRef nComp As Long, _
     ByRef CompName() As String, _
@@ -386,7 +385,7 @@ Public Sub LoadCompData( _
     Dim BL_pu As Double, BC_pu As Double
     Dim statusVal As Variant
     
-    Set ws = GetOrCreateSheet("kompenz·cia")
+    Set ws = GetOrCreateSheet("kompenzcia")
     
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     If lastRow < 4 Then
@@ -407,7 +406,7 @@ Public Sub LoadCompData( _
         
         idxBus = GetBusIndex(busName, BusNames)
         If idxBus = 0 Then
-            Err.Raise vbObjectError + 10, , "Uzol '" & busName & "' v liste 'kompenz·cia', riadok " & (i + 3) & " neexistuje."
+            Err.Raise vbObjectError + 10, , "Uzol '" & busName & "' v liste 'kompenzcia', riadok " & (i + 3) & " neexistuje."
         End If
         CompBus(i) = idxBus
         
@@ -419,7 +418,7 @@ Public Sub LoadCompData( _
             CompStatus(i) = 0
         End If
         
-        ' Ak nie je aktÌvna (Status=0), susceptancia je 0
+        ' Ak nie je aktvna (Status=0), susceptancia je 0
         If CompStatus(i) = 1 Then
             Ubase = BusBaseKV(idxBus)
             If SBase_MVA <> 0# Then
@@ -431,11 +430,11 @@ Public Sub LoadCompData( _
             XL_ohm = ParseDouble(ws.Cells(i + 3, 16).Value) ' P (16)
             XC_ohm = ParseDouble(ws.Cells(i + 3, 17).Value) ' Q (17)
             
-            ' SÈriov· kombin·cia / V˝sledn· reaktancia:
-            ' UûÌvateæ poûaduje 1/(XC - XL)
-            ' Ak XL=0 a XC>0 -> 1/XC (Kapacitn˝, B > 0)
-            ' Ak XL>0 a XC=0 -> 1/-XL (InduktÌvny, B < 0)
-            ' Ak s˙ zadanÈ obe, rozhoduje rozdiel.
+            ' Sriov kombincia / Vsledn reaktancia:
+            ' Uvate poaduje 1/(XC - XL)
+            ' Ak XL=0 a XC>0 -> 1/XC (Kapacitn, B > 0)
+            ' Ak XL>0 a XC=0 -> 1/-XL (Induktvny, B < 0)
+            ' Ak s zadan obe, rozhoduje rozdiel.
             
             Dim X_net_ohm As Double
             X_net_ohm = XC_ohm - XL_ohm
@@ -453,8 +452,8 @@ Public Sub LoadCompData( _
     Next i
 End Sub
 
-' NaËÌtanie d·t gener·torov z listu "generatory"
-' B: N·zov, C: PQ_Uzol, D: PV_Uzol, E: Status, L: Ra, M: P_gen, O: Xs, P: Xd''
+' Natanie dt genertorov z listu "generatory"
+' B: Nzov, C: PQ_Uzol, D: PV_Uzol, E: Status, L: Ra, M: P_gen, O: Xs, P: Xd''
 Public Sub LoadGeneratorData( _
     ByRef nGens As Long, _
     ByRef GenName() As String, _
@@ -529,7 +528,7 @@ Public Sub LoadGeneratorData( _
         End If
         
         ' Ra [ohm] -> L (12), Xs [ohm] -> O (15), Xd'' [ohm] -> P (16)
-        ' B·za impedancie (podæa PQ uzla, lebo tam je pripojen˝)
+        ' Bza impedancie (poda PQ uzla, lebo tam je pripojen)
         Ubase = BusBaseKV(idxPQ)
         If SBase_MVA <> 0 Then
             Zbase = (Ubase * Ubase) / SBase_MVA
@@ -545,7 +544,7 @@ Public Sub LoadGeneratorData( _
     Next i
 End Sub
 
-' Z·pis v˝sledkov gener·torov (Load Flow) - Q do stÂpca N
+' Zpis vsledkov genertorov (Load Flow) - Q do stpca N
 Public Sub WriteGeneratorResults( _
     ByVal nGens As Long, _
     ByRef GenBusPQ() As Long, _
@@ -565,7 +564,7 @@ Public Sub WriteGeneratorResults( _
     Dim Q_mvar As Double
     
     Set ws = GetOrCreateSheet("generatory")
-    ' HlaviËka
+    ' Hlavika
     ws.Cells(2, 14).Value = "Q_gen [Mvar]" ' N (14)
     
     For i = 1 To nGens
@@ -573,11 +572,11 @@ Public Sub WriteGeneratorResults( _
             idxPQ = GenBusPQ(i)
             idxPV = GenBusPV(i)
             
-            ' Tok z PV do PQ? Nie, Q_gen je injekcia do PQ uzla (alebo v˝roba gener·tora).
-            ' Q_gen sa meria na svork·ch (PQ uzol).
-            ' Pr˙d I = (V_pv - V_pq) / (Ra + jXs)
-            ' S_pq = V_pq * conj(I) ... to je prÌkon do PQ uzla z vetvy.
-            ' Ak je S_pq kladnÈ, tak to "teËie do uzla".
+            ' Tok z PV do PQ? Nie, Q_gen je injekcia do PQ uzla (alebo vroba genertora).
+            ' Q_gen sa meria na svorkch (PQ uzol).
+            ' Prd I = (V_pv - V_pq) / (Ra + jXs)
+            ' S_pq = V_pq * conj(I) ... to je prkon do PQ uzla z vetvy.
+            ' Ak je S_pq kladn, tak to "teie do uzla".
             
             Vi = CFromPolar(Vmag(idxPV), Vang(idxPV) * RAD2DEG)
             Vj = CFromPolar(Vmag(idxPQ), Vang(idxPQ) * RAD2DEG)
@@ -586,9 +585,9 @@ Public Sub WriteGeneratorResults( _
             ' I = (Vi - Vj) / Zs
             I_pu = CDiv(CSub(Vi, Vj), Zs)
             
-            ' V˝kon dod·van˝ do siete (na svork·ch j)
+            ' Vkon dodvan do siete (na svorkch j)
             ' S_gen = Vj * conj(I)
-            ' (Pozor na znamienko: I teËie z PV do PQ. Takûe I vstupuje do PQ. S = U*I*)
+            ' (Pozor na znamienko: I teie z PV do PQ. Take I vstupuje do PQ. S = U*I*)
             S_pu = CMul(Vj, CConj(I_pu))
             
             Q_mvar = S_pu.Im * SBase_MVA
@@ -600,9 +599,9 @@ Public Sub WriteGeneratorResults( _
     Next i
 End Sub
 
-' NaËÌtanie motorov z listu "motoryVN"
-' B: N·zov, C: Uzol, L: R[ohm], P: Xk[ohm], Q: G[S], R: B[S], S: Status
-' PrepoËet Xk na p.u. (Zbase), G a B na p.u.
+' Natanie motorov z listu "motoryVN"
+' B: Nzov, C: Uzol, L: R[ohm], P: Xk[ohm], Q: G[S], R: B[S], S: Status
+' Prepoet Xk na p.u. (Zbase), G a B na p.u.
 Public Sub LoadMotorData( _
     ByRef nMotors As Long, _
     ByRef MotorName() As String, _
@@ -661,11 +660,11 @@ Public Sub LoadMotorData( _
             MotorStatus(i) = 0
         End If
         
-        ' R [ohm] L (12) - iba pre straty, neprepoËÌtavame na p.u. (alebo hej? Vzorec je 3*I^2*R. Ak I je v A a R v Ohm, tak je to OK.)
-        ' NaËÌtame ako Ohmy.
+        ' R [ohm] L (12) - iba pre straty, neprepotavame na p.u. (alebo hej? Vzorec je 3*I^2*R. Ak I je v A a R v Ohm, tak je to OK.)
+        ' Natame ako Ohmy.
         MotorR(i) = ParseDouble(ws.Cells(i + 2, 12).Value)
         
-        ' B·za pre Xk, G, B
+        ' Bza pre Xk, G, B
         Ubase = BusBaseKV(idxBus)
         If SBase_MVA <> 0# Then
             Zbase = (Ubase * Ubase) / SBase_MVA
@@ -697,7 +696,7 @@ Public Sub LoadMotorData( _
     Next i
 End Sub
 
-' Z·pis v˝sledkov motorov (Load Flow) - I [A] do AD, Ploss [kW] do AE
+' Zpis vsledkov motorov (Load Flow) - I [A] do AD, Ploss [kW] do AE
 Public Sub WriteMotorResults( _
     ByVal nMotors As Long, _
     ByRef MotorBus() As Long, _
@@ -719,7 +718,7 @@ Public Sub WriteMotorResults( _
     
     Set ws = GetOrCreateSheet("motoryVN")
     
-    ' HlaviËka
+    ' Hlavika
     ws.Cells(2, 30).Value = "I [A]"     ' AD (30)
     ws.Cells(2, 31).Value = "Ploss [kW]" ' AE (31)
     
@@ -754,7 +753,7 @@ Public Sub WriteMotorResults( _
     Next i
 End Sub
 
-' Z·pis v˝sledkov kompenz·cie (Load Flow) - Nap‰tie do stÂpca O
+' Zpis vsledkov kompenzcie (Load Flow) - Naptie do stpca O
 Public Sub WriteCompResults( _
     ByVal nComp As Long, _
     ByRef CompBus() As Long, _
@@ -766,9 +765,9 @@ Public Sub WriteCompResults( _
     Dim U_kV As Double
     Dim idxBus As Long
     
-    Set ws = GetOrCreateSheet("kompenz·cia")
+    Set ws = GetOrCreateSheet("kompenzcia")
     
-    ' HlaviËka
+    ' Hlavika
     ws.Cells(3, 15).Value = "U [kV]" ' O (15)
     
     For i = 1 To nComp
@@ -778,7 +777,7 @@ Public Sub WriteCompResults( _
     Next i
 End Sub
 
-' Z·pis v˝sledkov reaktorov (Load Flow)
+' Zpis vsledkov reaktorov (Load Flow)
 ' Z: I[A], AA: dU[%], AB: P[MW], AC: Q[MVAr], AD: Ploss[kW]
 Public Sub WriteReactorResults( _
     ByVal nReaktory As Long, _
@@ -806,7 +805,7 @@ Public Sub WriteReactorResults( _
     
     Set ws = GetOrCreateSheet("reaktory")
     
-    ' HlaviËky (riadok 3)
+    ' Hlaviky (riadok 3)
     ws.Cells(3, 26).Value = "I [A]"
     ws.Cells(3, 27).Value = "dU [%]"
     ws.Cells(3, 28).Value = "P [MW]"
@@ -862,7 +861,7 @@ Public Sub WriteReactorResults( _
     Next k
 End Sub
 
-' Z·pis v˝sledkov dif. reaktorov (Load Flow)
+' Zpis vsledkov dif. reaktorov (Load Flow)
 ' X: I[A], Y: dU[%], Z: P[MW], AA: Q[MVAr], AB: Ploss[kW]
 Public Sub WriteDifReactorResults( _
     ByVal nDifReaktory As Long, _
@@ -890,7 +889,7 @@ Public Sub WriteDifReactorResults( _
     
     Set ws = GetOrCreateSheet("dif_reaktory")
     
-    ' HlaviËky (riadok 3) od stÂpca X (24)
+    ' Hlaviky (riadok 3) od stpca X (24)
     ws.Cells(3, 24).Value = "I [A]"
     ws.Cells(3, 25).Value = "dU [%]"
     ws.Cells(3, 26).Value = "P [MW]"
@@ -942,7 +941,7 @@ Public Sub WriteDifReactorResults( _
     Next k
 End Sub
 
-' Z·pis admitanËnej matice a pomocn˝ch blokov G a B
+' Zpis admitannej matice a pomocnch blokov G a B
 Public Sub WriteYMatrix( _
     ByRef Y() As Complex, _
     ByRef G() As Double, _
@@ -963,12 +962,12 @@ Public Sub WriteYMatrix( _
     row0 = 1
     col0 = 1
     
-    ' hlaviËky stÂpcov
+    ' hlaviky stpcov
     For J = 1 To n
         ws.Cells(row0, col0 + J).Value = BusNames(J)
     Next J
     
-    ' hlaviËky riadkov + samotn· matica G+jB
+    ' hlaviky riadkov + samotn matica G+jB
     For i = 1 To n
         ws.Cells(row0 + i, col0).Value = BusNames(i)
         For J = 1 To n
@@ -977,7 +976,7 @@ Public Sub WriteYMatrix( _
         Next J
     Next i
     
-    ' pomocn˝ blok G
+    ' pomocn blok G
     Dim startRowG As Long
     startRowG = row0 + n + 2
     ws.Cells(startRowG, col0).Value = "G = Re(Y)"
@@ -991,7 +990,7 @@ Public Sub WriteYMatrix( _
         Next J
     Next i
     
-    ' pomocn˝ blok B
+    ' pomocn blok B
     Dim startRowB As Long
     startRowB = startRowG + n + 4
     ws.Cells(startRowB, col0).Value = "B = Im(Y)"
@@ -1006,7 +1005,7 @@ Public Sub WriteYMatrix( _
     Next i
 End Sub
 
-' Vymazanie / prÌprava v˝sledkov˝ch listov "napatia" a "epsilon"
+' Vymazanie / prprava vsledkovch listov "napatia" a "epsilon"
 Public Sub ClearResultsSheets()
     Dim wsV As Worksheet, wsE As Worksheet
     
@@ -1016,19 +1015,19 @@ Public Sub ClearResultsSheets()
     wsV.Cells.Clear
     wsE.Cells.Clear
     
-    ' hlaviËky
-    wsV.Cells(1, 1).Value = "Iter·cia"
+    ' hlaviky
+    wsV.Cells(1, 1).Value = "Itercia"
     wsV.Cells(1, 2).Value = "Uzol"
     wsV.Cells(1, 3).Value = "|V| [p.u.]"
     wsV.Cells(1, 4).Value = "? [deg]"
     
-    wsE.Cells(1, 1).Value = "Iter·cia"
+    wsE.Cells(1, 1).Value = "Itercia"
     wsE.Cells(1, 2).Value = "max|?P|"
     wsE.Cells(1, 3).Value = "max|?Q|"
     wsE.Cells(1, 4).Value = "epsilon"
 End Sub
 
-' Logovanie nap‰tÌ v jednej iter·cii
+' Logovanie napt v jednej itercii
 Public Sub LogVoltages(ByVal iter As Long, _
                        ByRef BusNames() As String, _
                        ByRef Vmag() As Double, _
@@ -1050,7 +1049,7 @@ Public Sub LogVoltages(ByVal iter As Long, _
     Next i
 End Sub
 
-' Logovanie epsilon v jednej iter·cii
+' Logovanie epsilon v jednej itercii
 Public Sub LogEpsilon(ByVal iter As Long, _
                       ByVal maxDP As Double, _
                       ByVal maxDQ As Double, _
@@ -1068,7 +1067,7 @@ Public Sub LogEpsilon(ByVal iter As Long, _
     ws.Cells(R, 4).Value = eps
 End Sub
 
-' Z·pis s˙hrnn˝ch v˝sledkov do listu "index"
+' Zpis shrnnch vsledkov do listu "index"
 Public Sub WriteSummaryToIndex(ByVal totalTime As Double, _
                                ByVal iterCount As Long, _
                                ByVal epsFinal As Double, _
@@ -1083,11 +1082,11 @@ Public Sub WriteSummaryToIndex(ByVal totalTime As Double, _
     ws.Range("B9").Value = IIf(converged, "Konvergovalo", "Nekonvergovalo")
 End Sub
 
-' Z·pis v˝sledn˝ch nap‰tÌ z NR v˝poËtu na list "uzly"
-' H (stÂpec 8): |V| v˝p. [kV]
-' I (stÂpec 9): ? v˝p. [deg]
+' Zpis vslednch napt z NR vpotu na list "uzly"
+' H (stpec 8): |V| vp. [kV]
+' I (stpec 9): ? vp. [deg]
 '
-' Vmag(i) je v p.u., prepoËet na kV cez BusBaseKV(i)
+' Vmag(i) je v p.u., prepoet na kV cez BusBaseKV(i)
 Public Sub WriteFinalVoltagesToUzly( _
     ByRef Vmag() As Double, _
     ByRef Vang() As Double, _
@@ -1101,30 +1100,30 @@ Public Sub WriteFinalVoltagesToUzly( _
     
     nBuses = UBound(Vmag)
     
-    ' hlaviËky v˝sledkov (riadok 2)
-    ws.Cells(2, 8).Value = "|V| v˝p. [kV]"
-    ws.Cells(2, 9).Value = "? v˝p. [deg]"
+    ' hlaviky vsledkov (riadok 2)
+    ws.Cells(2, 8).Value = "|V| vp. [kV]"
+    ws.Cells(2, 9).Value = "? vp. [deg]"
     
-    ' d·ta od riadku 3
+    ' dta od riadku 3
     For i = 1 To nBuses
         ws.Cells(2 + i, 8).Value = Round(Vmag(i) * BusBaseKV(i), 2)
         ws.Cells(2 + i, 9).Value = Round(Vang(i) * RAD2DEG, 2)
     Next i
 End Sub
 
-' V˝poËet pr˙dov a tokov v˝konu vo vedeniach po NR v˝poËte
-' Vn˙torn˝ v˝poËet: v p.u.
-' V˝stupy na list "vedenia":
+' Vpoet prdov a tokov vkonu vo vedeniach po NR vpote
+' Vntorn vpoet: v p.u.
+' Vstupy na list "vedenia":
 '   F: |I_ij| [A]
 '   G: ?U [%]        (V_from - V_to v p.u. * 100)
-'   H: P_ij [MW]     (Ëinn˝ v˝kon z "uzol-od" do "uzol-do")
-'   I: Q_ij [MVAr]   (jalov˝ v˝kon z "uzol-od" do "uzol-do")
-'   J: P_str [kW]    (ËinnÈ straty na vedenÌ)
+'   H: P_ij [MW]     (inn vkon z "uzol-od" do "uzol-do")
+'   I: Q_ij [MVAr]   (jalov vkon z "uzol-od" do "uzol-do")
+'   J: P_str [kW]    (inn straty na veden)
 '
-' R(), X()  ñ v p.u. (po prepoËte v LoadBranchData)
-' Vmag(), Vang() ñ nap‰tia uzlov v p.u., Vang v radianoch
-' SBase_MVA ñ b·za v˝konu
-' BusBaseKV() - b·zy nap‰tÌ uzlov
+' R(), X()   v p.u. (po prepote v LoadBranchData)
+' Vmag(), Vang()  naptia uzlov v p.u., Vang v radianoch
+' SBase_MVA  bza vkonu
+' BusBaseKV() - bzy napt uzlov
 Public Sub WriteBranchCurrents( _
     ByVal nBranches As Long, _
     ByRef FromBus() As Long, _
@@ -1154,16 +1153,16 @@ Public Sub WriteBranchCurrents( _
     
     Set ws = ThisWorkbook.Worksheets("vedenia")
     
-    ' hlaviËky stÂpcov - riadok 2, stÂpce Q(17)..U(21)
+    ' hlaviky stpcov - riadok 2, stpce Q(17)..U(21)
     ws.Cells(2, 17).Value = "|I_ij| [A]"
     ws.Cells(2, 18).Value = "?U [%]"
     ws.Cells(2, 19).Value = "P_ij [MW]"
     ws.Cells(2, 20).Value = "Q_ij [MVAr]"
     ws.Cells(2, 21).Value = "P_str [kW]"
     
-    ' vetvy s˙ v riadkoch 3..(nBranches+2)
+    ' vetvy s v riadkoch 3..(nBranches+2)
     For k = 1 To nBranches
-        ' Ak je vedenie vypnutÈ (Status = 0), zapÌöeme nuly
+        ' Ak je vedenie vypnut (Status = 0), zapeme nuly
         If BranchStatus(k) = 0 Then
             ws.Cells(2 + k, 17).Value = 0
             ws.Cells(2 + k, 18).Value = 0
@@ -1174,8 +1173,8 @@ Public Sub WriteBranchCurrents( _
             iBus = FromBus(k)
             jBus = ToBus(k)
             
-            ' komplexnÈ nap‰tia uzlov v p.u. (pol·rny -> kartezi·nsky)
-            ' Vmag je v p.u., Vang v radianoch -> CFromPolar oËak·va uhol v stupÚoch
+            ' komplexn naptia uzlov v p.u. (polrny -> kartezinsky)
+            ' Vmag je v p.u., Vang v radianoch -> CFromPolar oakva uhol v stupoch
             Vi = CFromPolar(Vmag(iBus), Vang(iBus) * RAD2DEG)
             Vj = CFromPolar(Vmag(jBus), Vang(jBus) * RAD2DEG)
             
@@ -1183,36 +1182,36 @@ Public Sub WriteBranchCurrents( _
             Zpu = CCreate(R(k), X(k))
             
             If Abs(Zpu.Re) < 0.000000001 And Abs(Zpu.Im) < 0.000000001 Then
-                ' nulov· impedancia ñ pr˙d a v˝kony nedefinovanÈ; nastavÌme 0
+                ' nulov impedancia  prd a vkony nedefinovan; nastavme 0
                 Iabs_pu = 0#
                 dU_percent = 0#
                 Pij_pu = 0#
                 Qij_pu = 0#
                 Ploss_pu = 0#
             Else
-                ' pr˙d vetvou v p.u.: I_ij = (Vi - Vj) / Z_ij + Vi * j*B/2 (PI Ël·nok)
+                ' prd vetvou v p.u.: I_ij = (Vi - Vj) / Z_ij + Vi * j*B/2 (PI lnok)
                 Dim I_series As Complex, I_shunt As Complex
                 I_series = CDiv(CSub(Vi, Vj), Zpu)
                 I_shunt = CMul(Vi, CCreate(0, Bshunt(k) / 2#))
                 Iij_pu = CAdd(I_series, I_shunt)
                 Iabs_pu = CAbs(Iij_pu)
                 
-                ' ˙bytok nap‰tia v % (z pohæadu "uzol-od" -> "uzol-do"):
+                ' bytok naptia v % (z pohadu "uzol-od" -> "uzol-do"):
                 ' ?U [%] = (V_from_pu - V_to_pu) * 100
                 dU_percent = (Vmag(iBus) - Vmag(jBus)) * 100#
                 
-                ' tok v˝konu z uzla-od do uzla-do:
+                ' tok vkonu z uzla-od do uzla-do:
                 ' S_ij_pu = V_i * conj(I_ij)
                 Sij_pu = CMul(Vi, CConj(Iij_pu))
                 Pij_pu = Sij_pu.Re
                 Qij_pu = Sij_pu.Im
                 
-                ' ËinnÈ straty v p.u.:
+                ' inn straty v p.u.:
                 ' P_str_pu = |I|^2 * R_pu
                 Ploss_pu = Iabs_pu * Iabs_pu * R(k)
             End If
             
-            ' UrËenie b·zy pr˙du pre vedenie (podæa "from" uzla)
+            ' Urenie bzy prdu pre vedenie (poda "from" uzla)
             Ubase_line = BusBaseKV(iBus)
             If SBase_MVA <> 0# And Ubase_line <> 0# Then
                 Ibase_A = (SBase_MVA * 1000#) / (Sqr(3#) * Ubase_line)
@@ -1220,17 +1219,17 @@ Public Sub WriteBranchCurrents( _
                 Ibase_A = 1#
             End If
             
-            ' pr˙d v ampÈroch
+            ' prd v amproch
             Iabs_A = Iabs_pu * Ibase_A
             
-            ' prepoËet v˝konov do MW / MVAr
+            ' prepoet vkonov do MW / MVAr
             Pij_MW = Pij_pu * SBase_MVA
             Qij_MVAr = Qij_pu * SBase_MVA
             
-            ' ËinnÈ straty do kW
+            ' inn straty do kW
             Ploss_kW = Ploss_pu * SBase_MVA * 1000#
             
-            ' z·pis do riadku vetvy (riadky 3..) - zaokr˙hlenie na 2 des. miesta
+            ' zpis do riadku vetvy (riadky 3..) - zaokrhlenie na 2 des. miesta
             ws.Cells(2 + k, 17).Value = Round(Iabs_A, 2)
             ws.Cells(2 + k, 18).Value = Round(dU_percent, 2)
             ws.Cells(2 + k, 19).Value = Round(Pij_MW, 2)
@@ -1240,14 +1239,14 @@ Public Sub WriteBranchCurrents( _
     Next k
 End Sub
 
-' NaËÌtanie d·t vedenÌ z listu "vedenia"
-' SkutoËnÈ R, X [ohm] -> prepoËet do p.u. na dan˙ z·kladÚu
+' Natanie dt veden z listu "vedenia"
+' Skuton R, X [ohm] -> prepoet do p.u. na dan zkladu
 '
-' Form·t "vedenia":
-'   riadok 2: hlaviËka
-'   riadky 3.. : d·ta
-'   A: (voænÈ)
-'   B: N·zov vedenia
+' Formt "vedenia":
+'   riadok 2: hlavika
+'   riadky 3.. : dta
+'   A: (von)
+'   B: Nzov vedenia
 '   C: uzol-od
 '   D: uzol-do
 '   E: Status (0/1/2)
@@ -1297,12 +1296,12 @@ Public Sub LoadBranchData( _
     ReDim BranchStatus(1 To nBranches)
     
     For i = 1 To nBranches
-        ' D·ta od riadku 3 -> riadok = i + 2
-        BranchName(i) = CStr(ws.Cells(i + 2, 2).Value) ' B: N·zov
+        ' Dta od riadku 3 -> riadok = i + 2
+        BranchName(i) = CStr(ws.Cells(i + 2, 2).Value) ' B: Nzov
         fromName = CStr(ws.Cells(i + 2, 3).Value)      ' C: Uzol od
         toName = CStr(ws.Cells(i + 2, 4).Value)        ' D: Uzol do
         
-        ' NaËÌtanie Statusu z E (5)
+        ' Natanie Statusu z E (5)
         stVal = ws.Cells(i + 2, 5).Value
         If IsEmpty(stVal) Or Trim(CStr(stVal)) = "" Then
             BranchStatus(i) = 1 ' Default ON
@@ -1324,7 +1323,7 @@ Public Sub LoadBranchData( _
         End If
         ToBus(i) = idx
         
-        ' UrËenie Zbase pre vedenie (podæa "from" uzla)
+        ' Urenie Zbase pre vedenie (poda "from" uzla)
         Ubase1 = BusBaseKV(idx)
         
         If SBase_MVA <> 0# Then
@@ -1333,13 +1332,13 @@ Public Sub LoadBranchData( _
             Zbase_ohm = 1#
         End If
         
-        ' naËÌtanie skutoËnej impedancie - R z N(14), X z O(15), B z P(16)
+        ' natanie skutonej impedancie - R z N(14), X z O(15), B z P(16)
         R_ohm = ParseDouble(ws.Cells(i + 2, 14).Value)
         X_ohm = ParseDouble(ws.Cells(i + 2, 15).Value)
         Dim B_S As Double
         B_S = ParseDouble(ws.Cells(i + 2, 16).Value)
         
-        ' prepoËet do p.u.
+        ' prepoet do p.u.
         If Zbase_ohm <> 0# Then
             R(i) = R_ohm / Zbase_ohm
             X(i) = X_ohm / Zbase_ohm
@@ -1352,14 +1351,14 @@ Public Sub LoadBranchData( _
     Next i
 End Sub
 
-' V˝poËet pr˙dov a tokov v˝konu v transform·toroch po NR v˝poËte
-' Analogicky k WriteBranchCurrents, ale zohæadÚuje prevod
-' V˝stupy na list "transformatory" od stÂpca X:
+' Vpoet prdov a tokov vkonu v transformtoroch po NR vpote
+' Analogicky k WriteBranchCurrents, ale zohaduje prevod
+' Vstupy na list "transformatory" od stpca X:
 '   X: |I_prim| [A]
 '   Y: |I_sec| [A]
-'   Z: P_prim [MW] (do trafa z prim·ru)
+'   Z: P_prim [MW] (do trafa z primru)
 '   AA: Q_prim [MVAr]
-'   AB: P_sec [MW] (z trafa do sekund·ru)
+'   AB: P_sec [MW] (z trafa do sekundru)
 '   AC: Q_sec [MVAr]
 '   AD: P_str [kW]
 Public Sub WriteTransformerFlows( _
@@ -1383,8 +1382,8 @@ Public Sub WriteTransformerFlows( _
     Dim Zs As Complex, Ys As Complex
     Dim Ym As Complex
     Dim A As Double
-    Dim I_prim As Complex, I_sec As Complex ' Pr˙dy v p.u.
-    Dim S_prim As Complex, S_sec As Complex ' V˝kony v p.u.
+    Dim I_prim As Complex, I_sec As Complex ' Prdy v p.u.
+    Dim S_prim As Complex, S_sec As Complex ' Vkony v p.u.
     Dim Ibase_prim_A As Double, Ibase_sec_A As Double
     Dim Ubase1 As Double, Ubase2 As Double
     
@@ -1395,7 +1394,7 @@ Public Sub WriteTransformerFlows( _
     
     Set ws = ThisWorkbook.Worksheets("transformatory")
     
-    ' HlaviËky
+    ' Hlaviky
     ws.Cells(2, 24).Value = "|I_prim| [A]"
     ws.Cells(2, 25).Value = "|I_sec| [A]"
     ws.Cells(2, 26).Value = "P_prim [MW]"
@@ -1405,8 +1404,8 @@ Public Sub WriteTransformerFlows( _
     ws.Cells(2, 30).Value = "P_str [kW]"
     
     For k = 1 To nTrafo
-        i = TrFrom(k) ' Prim·r (s odboËkou)
-        J = TrTo(k)   ' Sekund·r
+        i = TrFrom(k) ' Primr (s odbokou)
+        J = TrTo(k)   ' Sekundr
         A = TrRatio(k)
         
         Vi = CFromPolar(Vmag(i), Vang(i) * RAD2DEG)
@@ -1414,15 +1413,15 @@ Public Sub WriteTransformerFlows( _
         
         Zs = CCreate(TrR(k), TrX(k))
         Ys = CDiv(CCreate(1#, 0#), Zs)
-        Ym = CCreate(TrG(k), TrB(k)) ' PrieËna admitancia na prim·ri
+        Ym = CCreate(TrG(k), TrB(k)) ' Priena admitancia na primri
         
-        ' Pr˙d do prim·ru (uzol i):
+        ' Prd do primru (uzol i):
         ' I_i = (Vi/a^2 + Vi*Ym - Vj/a) * ys ... nie presne takto z modelu
         ' Z modelu PI:
         ' I_i = Vi * (ys/a^2 + Ym) - Vj * (ys/a)
         ' I_j = Vj * (ys) - Vi * (ys/a)
         
-        ' PomocnÈ pre prim·r:
+        ' Pomocn pre primr:
         ' term1 = Vi * (ys/a^2 + Ym)
         Dim term1 As Complex, term2 As Complex
         Dim Yseries_a2 As Complex
@@ -1437,17 +1436,17 @@ Public Sub WriteTransformerFlows( _
         
         I_prim = CSub(term1, term2)
         
-        ' PomocnÈ pre sekund·r (tok DO siete z uzla j):
+        ' Pomocn pre sekundr (tok DO siete z uzla j):
         ' I_j = Vj * ys - Vi * (ys/a)
         term1 = CMul(Vj, Ys)
         term2 = CMul(Vi, Yseries_a)
         I_sec = CSub(term1, term2)
         
-        ' V˝kony
+        ' Vkony
         S_prim = CMul(Vi, CConj(I_prim))
         S_sec = CMul(Vj, CConj(I_sec))
         
-        ' B·zy pr˙du pre prim·r a sekund·r
+        ' Bzy prdu pre primr a sekundr
         Ubase1 = BusBaseKV(i)
         Ubase2 = BusBaseKV(J)
         
@@ -1463,29 +1462,29 @@ Public Sub WriteTransformerFlows( _
             Ibase_sec_A = 1#
         End If
         
-        ' Absol˙tne hodnoty pr˙dov
+        ' Absoltne hodnoty prdov
         Iprim_A = CAbs(I_prim) * Ibase_prim_A
         Isec_A = CAbs(I_sec) * Ibase_sec_A
         
-        ' V˝kony v MW/MVAr
+        ' Vkony v MW/MVAr
         Pprim_MW = S_prim.Re * SBase_MVA
         Qprim_MVAr = S_prim.Im * SBase_MVA
         
-        ' Pozor: P_sec definujeme ako tok Z trafa DO sekund·ru?
-        ' ätandardne v tabuæk·ch tokov sa pÌöe tok z i->j.
-        ' Tu m·me P_prim (vstup do trafa) a P_sec (v˝stup z trafa = -S_sec, ak S_sec je injekcia do siete)
-        ' Alebo jednoducho zapÌöeme injekciu do uzla j (S_sec).
-        ' Dohodnime sa: P_sec bude tok smerom OD uzla j DO trafa (Ëiûe S_sec tak ako vyölo),
+        ' Pozor: P_sec definujeme ako tok Z trafa DO sekundru?
+        ' tandardne v tabukch tokov sa pe tok z i->j.
+        ' Tu mme P_prim (vstup do trafa) a P_sec (vstup z trafa = -S_sec, ak S_sec je injekcia do siete)
+        ' Alebo jednoducho zapeme injekciu do uzla j (S_sec).
+        ' Dohodnime sa: P_sec bude tok smerom OD uzla j DO trafa (ie S_sec tak ako vylo),
         ' alebo tok smerom Z trafa DO uzla j?
-        ' Obvykle sa ud·va tok na zaËiatku a na konci vedenia.
-        ' Takûe P_sec = P_ji = S_sec.Re * SBase_MVA.
+        ' Obvykle sa udva tok na zaiatku a na konci vedenia.
+        ' Take P_sec = P_ji = S_sec.Re * SBase_MVA.
         Psec_MW = S_sec.Re * SBase_MVA
         Qsec_MVAr = S_sec.Im * SBase_MVA
         
         ' Straty = S_prim + S_sec
         Ploss_kW = (S_prim.Re + S_sec.Re) * SBase_MVA * 1000#
         
-        ' Z·pis
+        ' Zpis
         ws.Cells(2 + k, 24).Value = Round(Iprim_A, 2)
         ws.Cells(2 + k, 25).Value = Round(Isec_A, 2)
         ws.Cells(2 + k, 26).Value = Round(Pprim_MW, 2)
@@ -1496,7 +1495,7 @@ Public Sub WriteTransformerFlows( _
     Next k
 End Sub
 
-' Z·pis reportu o izolovan˝ch uzloch a vedeniach
+' Zpis reportu o izolovanch uzloch a vedeniach
 Public Sub WriteIsolationReport( _
     ByVal nBuses As Long, _
     ByRef BusNames() As String, _
@@ -1521,7 +1520,7 @@ Public Sub WriteIsolationReport( _
     ws.Cells.Clear
     
     R = 2
-    ws.Cells(R, 2).Value = "IzolovanÈ uzly"
+    ws.Cells(R, 2).Value = "Izolovan uzly"
     ws.Cells(R, 2).Font.Bold = True
     R = R + 1
     
@@ -1532,20 +1531,20 @@ Public Sub WriteIsolationReport( _
         End If
     Next i
     
-    R = R + 1 ' Jeden voæn˝ riadok
-    ws.Cells(R, 2).Value = "IzolovanÈ vedenia"
+    R = R + 1 ' Jeden von riadok
+    ws.Cells(R, 2).Value = "Izolovan vedenia"
     ws.Cells(R, 2).Font.Bold = True
     R = R + 1
     
     For i = 1 To nBranches
         If IsBranchIsolated(i) Then
-            ' VypÌöeme "From -> To"
+            ' Vypeme "From -> To"
             ws.Cells(R, 2).Value = BusNames(FromBus(i)) & " -> " & BusNames(ToBus(i))
             R = R + 1
         End If
     Next i
     
-    ' MÙûeme pridaù aj izolovanÈ transform·tory
+    ' Meme prida aj izolovan transformtory
     For i = 1 To nTrafo
         If IsTrafoIsolated(i) Then
             ws.Cells(R, 2).Value = "Trafo: " & BusNames(TrFrom(i)) & " -> " & BusNames(TrTo(i))
@@ -1553,32 +1552,32 @@ Public Sub WriteIsolationReport( _
         End If
     Next i
     
-    ' IzolovanÈ kompenz·cie
+    ' Izolovan kompenzcie
     If nComp > 0 Then
         R = R + 1
-        ws.Cells(R, 2).Value = "IzolovanÈ kompenz·cie"
+        ws.Cells(R, 2).Value = "Izolovan kompenzcie"
         ws.Cells(R, 2).Font.Bold = True
         R = R + 1
         
         For i = 1 To nComp
             If IsCompIsolated(i) Then
-                ws.Cells(R, 2).Value = "Kompenz·cia na uzle: " & BusNames(CompBus(i))
+                ws.Cells(R, 2).Value = "Kompenzcia na uzle: " & BusNames(CompBus(i))
                 R = R + 1
             End If
         Next i
     End If
     
-    ' Motory VN nie s˙ explicitne izolovanÈ objekty (s˙ to spotrebiËe),
-    ' ale mÙûu byù na izolovan˝ch uzloch.
+    ' Motory VN nie s explicitne izolovan objekty (s to spotrebie),
+    ' ale mu by na izolovanch uzloch.
     
-    ' Z·pis pozn·mky do listu "uzly" stÂpec H (8)
+    ' Zpis poznmky do listu "uzly" stpec H (8)
     Dim wsUzly As Worksheet
     Set wsUzly = ThisWorkbook.Worksheets("uzly")
     For i = 1 To nBuses
         If IsBusIsolated(i) Then
-            ' Ak je izolovan˝, do stÂpca H napÌöeme "izolovane"
-            ' Pozor: WriteFinalVoltagesToUzly prepisuje stÂpec H.
-            ' MusÌme zabezpeËiù poradie volania, alebo to zapÌsaù po WriteFinalVoltages.
+            ' Ak je izolovan, do stpca H napeme "izolovane"
+            ' Pozor: WriteFinalVoltagesToUzly prepisuje stpec H.
+            ' Musme zabezpei poradie volania, alebo to zapsa po WriteFinalVoltages.
             wsUzly.Cells(2 + i, 8).Value = "izolovane"
             wsUzly.Cells(2 + i, 9).Value = "-"
         End If
@@ -1587,7 +1586,7 @@ End Sub
 
 
 
-' NaËÌtanie d·t o spÌnaËoch z h·rka "spinace"
+' Natanie dt o spnaoch z hrka "spinace"
 Public Sub LoadSwitchData( _
     ByRef nSwitches As Long, _
     ByRef SwitchName() As String, _
@@ -1676,7 +1675,7 @@ Public Sub LoadSwitchData( _
     Next i
 End Sub
 
-' Z·pis v˝sledn˝ch pr˙dov spÌnaËov do h·rka "spinace"
+' Zpis vslednch prdov spnaov do hrka "spinace"
 Public Sub WriteSwitchResults(ByVal nSwitches As Long, ByRef SwCurrent() As Double)
     Dim ws As Worksheet
     Dim i As Long
@@ -1686,7 +1685,7 @@ Public Sub WriteSwitchResults(ByVal nSwitches As Long, ByRef SwCurrent() As Doub
     If ws Is Nothing Then Exit Sub
     On Error GoTo 0
     
-    ' HlaviËka N(14)
+    ' Hlavika N(14)
     ws.Cells(2, 14).Value = "I [A]"
     
     For i = 1 To nSwitches
