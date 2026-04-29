@@ -1,11 +1,11 @@
 Attribute VB_Name = "modMain"
 '==========================
 ' Modul: modMain
-' Posledná úprava: 15.02.2026 15:15 (Bratislava)
+' Posledn prava: 15.02.2026 15:15 (Bratislava)
 '==========================
 Option Explicit
 
-' Tlaèidlo na tvorbu Y-matice
+' Tlaidlo na tvorbu Y-matice
 Public Sub CmdBuildYMatrix()
     On Error GoTo ErrHandler
     
@@ -39,14 +39,14 @@ Public Sub CmdBuildYMatrix()
     Dim DifReaktorFrom() As Long, DifReaktorTo() As Long
     Dim DifReaktorR() As Double, DifReaktorX() As Double
     
-    ' Spínaèe
+    ' Spnae
     Dim nSwitches As Long
     Dim SwitchName() As String
     Dim SwFrom() As Long, SwTo() As Long
     Dim SwR() As Double, SwX() As Double
     Dim SwStatus() As Integer
     
-    ' Kompenzácia
+    ' Kompenzcia
     Dim nComp As Long
     Dim CompName() As String
     Dim CompBus() As Long
@@ -66,12 +66,12 @@ Public Sub CmdBuildYMatrix()
     Dim Y() As Complex
     Dim G() As Double, B() As Double
     Dim SBase_MVA As Double
-    Dim UBase_VN As Double, UBase_NN As Double
+    Dim BaseVoltages() As Double
     
-    ' bázy
-    Call GetBaseValues(SBase_MVA, UBase_VN, UBase_NN)
+    ' bzy
+    Call GetBaseValues(SBase_MVA, BaseVoltages)
     
-    ' Topológia - Izolované èasti
+    ' Topolgia - Izolovan asti
     Dim IsBusIsolated() As Boolean
     Dim IsBranchIsolated() As Boolean
     Dim IsTrafoIsolated() As Boolean
@@ -83,7 +83,7 @@ Public Sub CmdBuildYMatrix()
     Dim isolatedCount As Long
 
     ' uzly a vetvy v p.u.
-    Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, UBase_VN, UBase_NN)
+    Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, BaseVoltages)
     Call LoadBranchData(nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, BusNames, BusBaseKV, SBase_MVA, BranchBshunt)
     Call LoadTransformerData(nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, BusNames, BusBaseKV, SBase_MVA)
     Call LoadReactorData(nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, BusNames, BusBaseKV, SBase_MVA)
@@ -92,7 +92,7 @@ Public Sub CmdBuildYMatrix()
     Call LoadCompData(nComp, CompName, CompBus, CompB, CompStatus, BusNames, BusBaseKV, SBase_MVA)
     Call LoadMotorData(nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorG, MotorB, MotorStatus, BusNames, BusBaseKV, SBase_MVA)
     
-    ' Identifikácia izolovaných èastí (aj pre samostatnú stavbu matice)
+    ' Identifikcia izolovanch ast (aj pre samostatn stavbu matice)
     ' Posielame BranchStatus
     Call FindIsolatedParts(nBuses, nBranches, FromBus, ToBus, BranchStatus, _
                            nTrafo, TrFrom, TrTo, _
@@ -119,7 +119,7 @@ Public Sub CmdBuildYMatrix()
                    BusNames, IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, _
                    Y, G, B)
     
-    MsgBox "Admitanèná matica bola vytvorená.", vbInformation
+    MsgBox "Admitann matica bola vytvoren.", vbInformation
     Exit Sub
 
 ErrHandler:
@@ -127,12 +127,12 @@ ErrHandler:
 End Sub
 
 
-' Tlaèidlo na spustenie NR load-flow
+' Tlaidlo na spustenie NR load-flow
 Public Sub CmdRunNR()
     Call NewtonRaphsonLoadFlow
 End Sub
 
-' Tlaèidlo na výpoèet skratových prúdov
+' Tlaidlo na vpoet skratovch prdov
 Public Sub CmdCalculateShortCircuit()
     On Error GoTo ErrHandler
     
@@ -166,14 +166,14 @@ Public Sub CmdCalculateShortCircuit()
     Dim DifReaktorFrom() As Long, DifReaktorTo() As Long
     Dim DifReaktorR() As Double, DifReaktorX() As Double
     
-    ' Spínaèe
+    ' Spnae
     Dim nSwitches As Long
     Dim SwitchName() As String
     Dim SwFrom() As Long, SwTo() As Long
     Dim SwR() As Double, SwX() As Double
     Dim SwStatus() As Integer
     
-    ' Kompenzácia (len pre naèítanie do topológie, výpoèet ju ignoruje)
+    ' Kompenzcia (len pre natanie do topolgie, vpoet ju ignoruje)
     Dim nComp As Long
     Dim CompName() As String
     Dim CompBus() As Long
@@ -191,13 +191,13 @@ Public Sub CmdCalculateShortCircuit()
     Dim MotorStatus() As Integer
     
     Dim SBase_MVA As Double
-    Dim UBase_VN As Double, UBase_NN As Double
+    Dim BaseVoltages() As Double
     
     Dim Ik_input() As Double
     Dim Ik_result() As Double
     Dim i As Long, ws As Worksheet
     
-    ' Topológia - Izolované èasti
+    ' Topolgia - Izolovan asti
     Dim IsBusIsolated() As Boolean
     Dim IsBranchIsolated() As Boolean
     Dim IsTrafoIsolated() As Boolean
@@ -210,9 +210,9 @@ Public Sub CmdCalculateShortCircuit()
     Dim IsGenIsolated() As Boolean
     Dim isolatedCount As Long
     
-    ' Naèítanie dát
-    Call GetBaseValues(SBase_MVA, UBase_VN, UBase_NN)
-    Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, UBase_VN, UBase_NN)
+    ' Natanie dt
+    Call GetBaseValues(SBase_MVA, BaseVoltages)
+    Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, BaseVoltages)
     Call LoadBranchData(nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, BusNames, BusBaseKV, SBase_MVA, BranchBshunt)
     Call LoadTransformerData(nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, BusNames, BusBaseKV, SBase_MVA)
     Call LoadReactorData(nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, BusNames, BusBaseKV, SBase_MVA)
@@ -221,7 +221,7 @@ Public Sub CmdCalculateShortCircuit()
     Call LoadCompData(nComp, CompName, CompBus, CompB, CompStatus, BusNames, BusBaseKV, SBase_MVA)
     Call LoadMotorData(nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorG, MotorB, MotorStatus, BusNames, BusBaseKV, SBase_MVA)
     
-    ' Identifikácia izolovaných (aby výpoèet nezlyhal na singulárnej matici)
+    ' Identifikcia izolovanch (aby vpoet nezlyhal na singulrnej matici)
     Call FindIsolatedParts(nBuses, nBranches, FromBus, ToBus, BranchStatus, _
                            nTrafo, TrFrom, TrTo, _
                            nReaktory, ReaktorFrom, ReaktorTo, _
@@ -232,15 +232,15 @@ Public Sub CmdCalculateShortCircuit()
                            BusTypes, _
                            IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, IsCompIsolated, IsMotorIsolated, isolatedCount)
     
-    ' Naèítanie vstupných skratov zo ståpca J (pre Slack)
+    ' Natanie vstupnch skratov zo stpca J (pre Slack)
     ReDim Ik_input(1 To nBuses)
     Set ws = ThisWorkbook.Worksheets("uzly")
     For i = 1 To nBuses
         Ik_input(i) = ParseDouble(ws.Cells(2 + i, 10).Value)
     Next i
     
-    ' Výpoèet (Kompenzácia tu nie je, lebo sa ignoruje pri skratoch)
-    ' Motory sú zahrnuté
+    ' Vpoet (Kompenzcia tu nie je, lebo sa ignoruje pri skratoch)
+    ' Motory s zahrnut
     Call CalculateShortCircuit(nBuses, nBranches, FromBus, ToBus, R, X, BranchStatus, _
                                nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
                                nTrafo, TrFrom, TrTo, TrR, TrX, TrRatio, _
@@ -250,20 +250,20 @@ Public Sub CmdCalculateShortCircuit()
                                BusNames, BusTypes, BusBaseKV, Ik_input, Ik_result, SBase_MVA, _
                                IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated)
                                
-    ' Zápis výsledkov
+    ' Zpis vsledkov
     Call WriteShortCircuitResults(Ik_result, nBuses)
     
-    ' Aktualizácia SLD
+    ' Aktualizcia SLD
     Call UpdateSLD
     
-    MsgBox "Výpoèet skratov ukonèený.", vbInformation
+    MsgBox "Vpoet skratov ukonen.", vbInformation
     Exit Sub
 
 ErrHandler:
-    MsgBox "Chyba pri výpoète skratov: " & Err.Description, vbCritical
+    MsgBox "Chyba pri vpote skratov: " & Err.Description, vbCritical
 End Sub
 
-' Makro pre VBS – kompletný beh: Y-matica + NR
+' Makro pre VBS  kompletn beh: Y-matica + NR
 Public Sub RunFullLoadFlow()
     Application.ScreenUpdating = False
     Application.EnableEvents = False
@@ -274,10 +274,10 @@ Public Sub RunFullLoadFlow()
     Call CmdBuildYMatrix
     Call CmdRunNR
     
-    ' Aktualizácia SLD (ak NR zbehne OK, CmdRunNR volá UpdateSLD? Nie, pridáme to do CmdRunNR alebo sem)
-    ' CmdRunNR je Sub, ktorá volá NewtonRaphsonLoadFlow.
+    ' Aktualizcia SLD (ak NR zbehne OK, CmdRunNR vol UpdateSLD? Nie, pridme to do CmdRunNR alebo sem)
+    ' CmdRunNR je Sub, ktor vol NewtonRaphsonLoadFlow.
     ' NewtonRaphsonLoadFlow je v modNR.
-    ' Pridáme volanie UpdateSLD na koniec NewtonRaphsonLoadFlow v modNR.
+    ' Pridme volanie UpdateSLD na koniec NewtonRaphsonLoadFlow v modNR.
     
 Cleanup:
     Application.ScreenUpdating = True
