@@ -1,11 +1,11 @@
 Attribute VB_Name = "modMain"
 '==========================
 ' Modul: modMain
-' Posledn prava: 15.02.2026 15:15 (Bratislava)
+' Posledná úprava: 15.02.2026 15:15 (Bratislava)
 '==========================
 Option Explicit
 
-' Tlaidlo na tvorbu Y-matice
+' Tlačidlo na tvorbu Y-matice
 Public Sub CmdBuildYMatrix()
     On Error GoTo ErrHandler
     
@@ -119,7 +119,7 @@ Public Sub CmdBuildYMatrix()
                    BusNames, IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, _
                    Y, G, B)
     
-    MsgBox "Admitann matica bola vytvoren.", vbInformation
+    MsgBox "Admitančná matica bola vytvorená.", vbInformation
     Exit Sub
 
 ErrHandler:
@@ -127,12 +127,12 @@ ErrHandler:
 End Sub
 
 
-' Tlaidlo na spustenie NR load-flow
+' Tlačidlo na spustenie NR load-flow
 Public Sub CmdRunNR()
     Call NewtonRaphsonLoadFlow
 End Sub
 
-' Tlaidlo na vpoet skratovch prdov
+' Tlačidlo na výpočet skratových prúdov
 Public Sub CmdCalculateShortCircuit()
     On Error GoTo ErrHandler
     
@@ -256,11 +256,11 @@ Public Sub CmdCalculateShortCircuit()
     ' Aktualizcia SLD
     Call UpdateSLD
     
-    MsgBox "Vpoet skratov ukonen.", vbInformation
+    MsgBox "Výpočet skratov ukončený.", vbInformation
     Exit Sub
 
 ErrHandler:
-    MsgBox "Chyba pri vpote skratov: " & Err.Description, vbCritical
+    MsgBox "Chyba pri výpočte skratov: " & Err.Description, vbCritical
 End Sub
 
 ' Makro pre VBS  kompletn beh: Y-matica + NR
@@ -284,7 +284,6 @@ Cleanup:
     Application.EnableEvents = True
     Application.Calculation = xlCalculationAutomatic
 End Sub
-
 
 
 

@@ -1,11 +1,11 @@
 Attribute VB_Name = "modUtils"
 '==========================
 ' Modul: modUtils
-' Posledn prava: 15.02.2026 15:15 (Bratislava)
+' Posledná úprava: 15.02.2026 15:15 (Bratislava)
 '==========================
 Option Explicit
 
-' Univerzlne spracovanie sel
+' Univerzálne spracovanie čísel
 Public Function ParseDouble(ByVal v As Variant) As Double
     Dim s As String, decSep As String, otherSep As String
     On Error GoTo FailSafe
@@ -26,7 +26,7 @@ FailSafe:
     ParseDouble = 0#
 End Function
 
-' Vyhadanie indexu uzla
+' Vyhľadanie indexu uzla
 Public Function GetBusIndex(ByVal busName As String, ByRef BusNames() As String) As Long
     Dim i As Long
     For i = LBound(BusNames) To UBound(BusNames)
@@ -38,14 +38,14 @@ Public Function GetBusIndex(ByVal busName As String, ByRef BusNames() As String)
     GetBusIndex = 0
 End Function
 
-' Njde prv von riadok
+' Nájde prvý voľný riadok
 Public Function FirstFreeRow(ByVal ws As Worksheet, ByVal col As Long) As Long
     With ws
         FirstFreeRow = IIf(.Cells(.Rows.Count, col).End(xlUp).Row < 2, 2, .Cells(.Rows.Count, col).End(xlUp).Row + 1)
     End With
 End Function
 
-' Zska alebo vytvor list
+' Získa alebo vytvorí list
 Public Function GetOrCreateSheet(ByVal sheetName As String) As Worksheet
     On Error Resume Next
     Set GetOrCreateSheet = ThisWorkbook.Worksheets(sheetName)
@@ -55,10 +55,10 @@ Public Function GetOrCreateSheet(ByVal sheetName As String) As Worksheet
     End If
 End Function
 
-' Nacitanie bazovych hodnot zo sheetu "data"
+' Načítanie bázových hodnôt zo sheetu "data"
 ' K11: S_base [MVA]
-' K3:K8: bazove napatove hladiny [kV] (prazdne bunky sa ignoruju)
-' Poznamka: ocakava sa aspon jedna platna hodnota > 0
+' K3:K8: bázové napäťové hladiny [kV] (prázdne bunky sa ignorujú)
+' Poznámka: očakáva sa aspoň jedna platná hodnota > 0
 Public Sub GetBaseValues(ByRef SBase_MVA As Double, ByRef BaseVoltages() As Double)
     Dim ws As Worksheet
     Dim i As Long, n As Long
@@ -118,5 +118,4 @@ Public Function GetBaseVoltageForBus(ByVal V_start_kV As Double, ByRef BaseVolta
                   "Napatie uzla " & Format(V_start_kV, "0.###") & " kV patri do viacerych bazovych hladin. Skontrolujte konfiguraciu v data!K3:K8."
     End If
 End Function
-
 
