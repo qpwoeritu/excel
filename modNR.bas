@@ -1,7 +1,7 @@
 Attribute VB_Name = "modNR"
 '==========================
 ' Modul: modNR
-' Posledn prava: 15.02.2026 15:15 (Bratislava)
+' Posledná úprava: 15.02.2026 15:15 (Bratislava)
 '==========================
 Option Explicit
 
@@ -217,7 +217,7 @@ Private Sub SolveLinearSystem_Gauss(ByRef J() As Double, _
 
         ' Kontrola singularity
         If Abs(A(i, i)) < 0.000000000000001 Then
-            Err.Raise vbObjectError + 10, "SolveLinearSystem_Gauss", "Matica je singulrna, sstava nem rieenie."
+            Err.Raise vbObjectError + 10, "SolveLinearSystem_Gauss", "Matica je singulárna, sústava nemá riešenie."
         End If
 
         ' Elimincia pod pivotom
@@ -243,7 +243,7 @@ Private Sub SolveLinearSystem_Gauss(ByRef J() As Double, _
     Exit Sub
 
 ErrHandler:
-    Err.Raise vbObjectError + 10, , "Chyba pri rieen sstavy: " & Err.Description
+    Err.Raise vbObjectError + 10, , "Chyba pri riešení sústavy: " & Err.Description
 End Sub
 
 
@@ -666,7 +666,7 @@ SkipNR:
     Exit Sub
 
 ErrHandler:
-    MsgBox "Chyba v Newton-Raphson vpote: " & Err.Description, vbCritical
+    MsgBox "Chyba vo výpočte Newton-Raphson: " & Err.Description, vbCritical
 End Sub
 
 '--------------------------------------
@@ -958,7 +958,6 @@ Private Sub CalcTrafoFlow(ByVal k As Long, ByVal i As Long, ByVal J As Long, _
     I_prim = CSub(term1, term2)
     S_prim = CMul(Vi, CConj(I_prim))
 End Sub
-
 
 
 
