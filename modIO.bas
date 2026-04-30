@@ -363,7 +363,7 @@ Public Sub LoadDifReactorData( _
     Next i
 End Sub
 
-' Natanie kompenzcie z listu "kompenzcia"
+' Natanie kompenzcie z listu "kompenzacia"
 ' B: Nzov, C: Uzol, N: Status (1/0), P: X_L[ohm], Q: X_C[ohm]
 ' Hlavika: riadok 3, dta od 4
 Public Sub LoadCompData( _
@@ -385,7 +385,7 @@ Public Sub LoadCompData( _
     Dim BL_pu As Double, BC_pu As Double
     Dim statusVal As Variant
     
-    Set ws = GetOrCreateSheet("kompenzcia")
+    Set ws = GetOrCreateSheet("kompenzacia")
     
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     If lastRow < 4 Then
@@ -406,7 +406,7 @@ Public Sub LoadCompData( _
         
         idxBus = GetBusIndex(busName, BusNames)
         If idxBus = 0 Then
-            Err.Raise vbObjectError + 10, , "Uzol '" & busName & "' v liste 'kompenzcia', riadok " & (i + 3) & " neexistuje."
+            Err.Raise vbObjectError + 10, , "Uzol '" & busName & "' v liste 'kompenzacia', riadok " & (i + 3) & " neexistuje."
         End If
         CompBus(i) = idxBus
         
@@ -765,7 +765,7 @@ Public Sub WriteCompResults( _
     Dim U_kV As Double
     Dim idxBus As Long
     
-    Set ws = GetOrCreateSheet("kompenzcia")
+    Set ws = GetOrCreateSheet("kompenzacia")
     
     ' Hlavika
     ws.Cells(3, 15).Value = "U [kV]" ' O (15)
@@ -1561,7 +1561,7 @@ Public Sub WriteIsolationReport( _
         
         For i = 1 To nComp
             If IsCompIsolated(i) Then
-                ws.Cells(R, 2).Value = "Kompenzcia na uzle: " & BusNames(CompBus(i))
+                ws.Cells(R, 2).Value = "kompenzacia na uzle: " & BusNames(CompBus(i))
                 R = R + 1
             End If
         Next i
