@@ -1,7 +1,7 @@
 Attribute VB_Name = "modIO"
 '==========================
 ' Modul: modIO
-' Posledná úprava: 15.02.2026 15:15 (Bratislava)
+' Posledn prava: 15.02.2026 15:15 (Bratislava)
 '==========================
 ' 25.01.2026 21:30:03 (CET)
 Option Explicit
@@ -45,7 +45,7 @@ Public Sub LoadBusData( _
     ' posledn riadok poda stpca B (Nzov uzla)
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     If lastRow < 3 Then
-        Err.Raise vbObjectError + 1, , "V liste 'uzly' nie sú žiadne uzly (očakávam dáta od riadku 3)."
+        Err.Raise vbObjectError + 1, , "V liste 'uzly' nie s iadne uzly (oakvam dta od riadku 3)."
     End If
     
     ' prv dta s v riadku 3 => poet uzlov
@@ -1692,4 +1692,5 @@ Public Sub WriteSwitchResults(ByVal nSwitches As Long, ByRef SwCurrent() As Doub
         ws.Cells(i + 2, 14).Value = Round(SwCurrent(i), 2)
     Next i
 End Sub
+
 
