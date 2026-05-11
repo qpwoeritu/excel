@@ -1,7 +1,7 @@
 Attribute VB_Name = "modYBus"
 '==========================
 ' Modul: modYBus
-' Posledná úprava: 29.04.2026 00:00 (Bratislava)
+' Posledn� �prava: 29.04.2026 00:00 (Bratislava)
 '==========================
 Option Explicit
 
@@ -77,7 +77,7 @@ Public Sub BuildYBus(ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBu
         End If
     Next k
 
-    ' Trafá
+    ' Traf�
     For k = 1 To nTrafo
         If Not IsTrafoIsolated(k) Then
             If TrySeriesAdmittance(TrR(k), TrX(k), gi, bi) Then
@@ -124,7 +124,7 @@ Public Sub BuildYBus(ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBu
         End If
     Next k
 
-    ' Spínače
+    ' Sp�na�e
     For k = 1 To nSwitches
         If SwStatus(k) > 0 Then
             If Not IsSwitchIsolated(k) Then
@@ -136,7 +136,7 @@ Public Sub BuildYBus(ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBu
         End If
     Next k
 
-    ' Kompenzácia
+    ' Kompenz�cia
     For k = 1 To nComp
         If CompStatus(k) = 1 Then
             i = CompBus(k)
@@ -152,7 +152,7 @@ Public Sub BuildYBus(ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBu
         End If
     Next k
 
-    ' Izolované uzly + prevod do komplexnej matice pre existujúci export
+    ' Izolovan� uzly + prevod do komplexnej matice pre existuj�ci export
     ReDim Y(1 To nBuses, 1 To nBuses)
     For i = 1 To nBuses
         If IsBusIsolated(i) Then
