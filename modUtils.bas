@@ -1,11 +1,6 @@
-Attribute VB_Name = "modUtils"
-'==========================
-' Modul: modUtils
-' Posledn prava: 15.02.2026 15:15 (Bratislava)
-'==========================
 Option Explicit
 
-' Univerzlne spracovanie sel
+' Univerzálne spracovanie čísel
 Public Function ParseDouble(ByVal v As Variant) As Double
     Dim s As String, decSep As String, otherSep As String
     On Error GoTo FailSafe
@@ -26,7 +21,7 @@ FailSafe:
     ParseDouble = 0#
 End Function
 
-' Vyhadanie indexu uzla
+' Vyhľadanie indexu uzla
 Public Function GetBusIndex(ByVal busName As String, ByRef BusNames() As String) As Long
     Dim i As Long
     For i = LBound(BusNames) To UBound(BusNames)
@@ -38,14 +33,14 @@ Public Function GetBusIndex(ByVal busName As String, ByRef BusNames() As String)
     GetBusIndex = 0
 End Function
 
-' Njde prv von riadok
+' Nájde prvý voľný riadok
 Public Function FirstFreeRow(ByVal ws As Worksheet, ByVal col As Long) As Long
     With ws
         FirstFreeRow = IIf(.Cells(.Rows.Count, col).End(xlUp).Row < 2, 2, .Cells(.Rows.Count, col).End(xlUp).Row + 1)
     End With
 End Function
 
-' Zska alebo vytvor list
+' Získa alebo vytvorí list
 Public Function GetOrCreateSheet(ByVal sheetName As String) As Worksheet
     On Error Resume Next
     Set GetOrCreateSheet = ThisWorkbook.Worksheets(sheetName)
@@ -55,67 +50,36 @@ Public Function GetOrCreateSheet(ByVal sheetName As String) As Worksheet
     End If
 End Function
 
-' Nacitanie bazovych hodnot zo sheetu "data"
-' K11: S_base [MVA]
-' K3:K8: bazove napatove hladiny [kV] (prazdne bunky sa ignoruju)
-' Poznamka: ocakava sa aspon jedna platna hodnota > 0
-Public Sub GetBaseValues(ByRef SBase_MVA As Double, ByRef BaseVoltages() As Double)
+' Načítanie bázových hodnôt zo sheetu "index"
+' B10: S_base [MVA]
+' B11: U_base_VN [kV] (napr. 110)
+' B12: U_base_NN [kV] (napr. 6.3)
+Public Sub GetBaseValues(ByRef SBase_MVA As Double, ByRef UBase_VN As Double, ByRef UBase_NN As Double)
     Dim ws As Worksheet
-    Dim i As Long, n As Long
-    Dim val As Double
-
-    Set ws = ThisWorkbook.Worksheets("data")
-    SBase_MVA = ParseDouble(ws.Range("K11").Value)
-    If SBase_MVA <= 0# Then
-        Err.Raise vbObjectError + 1001, "GetBaseValues", "Neplatna hodnota S_base v data!K11. Hodnota musi byt vacsia ako 0."
-    End If
-
-    ReDim BaseVoltages(1 To 1)
-    n = 0
-    For i = 3 To 8
-        val = ParseDouble(ws.Cells(i, 11).Value) ' K = 11
-        If val > 0# Then
-            n = n + 1
-            ReDim Preserve BaseVoltages(1 To n)
-            BaseVoltages(n) = val
-        End If
-    Next i
-
-    If n = 0 Then
-        Err.Raise vbObjectError + 1002, "GetBaseValues", "V rozsahu data!K3:K8 nie je ziadna platna bazova napatova hladina."
-    End If
+    Set ws = ThisWorkbook.Worksheets("index")
+    SBase_MVA = ParseDouble(ws.Range("B10").Value)
+    UBase_VN = ParseDouble(ws.Range("B11").Value)
+    UBase_NN = ParseDouble(ws.Range("B12").Value)
+    
+    If SBase_MVA <= 0# Then SBase_MVA = 100#
+    If UBase_VN <= 0# Then UBase_VN = 110#
+    If UBase_NN <= 0# Then UBase_NN = 6.3
 End Sub
 
-Public Function GetBaseVoltageForBus(ByVal V_start_kV As Double, ByRef BaseVoltages() As Double) As Double
-    Dim i As Long
-    Dim matchCount As Long
-    Dim matchedBase As Double
-    Dim uBase As Double
-
-    If V_start_kV <= 0# Then
-        Err.Raise vbObjectError + 1003, "GetBaseVoltageForBus", "Neplatne napatie uzla (" & CStr(V_start_kV) & " kV). Hodnota musi byt vacsia ako 0."
-    End If
-
-    matchCount = 0
-    matchedBase = 0#
-    For i = LBound(BaseVoltages) To UBound(BaseVoltages)
-        uBase = BaseVoltages(i)
-        If uBase > 0# Then
-            If V_start_kV >= 0.9 * uBase And V_start_kV <= 1.1 * uBase Then
-                matchCount = matchCount + 1
-                matchedBase = uBase
-            End If
-        End If
-    Next i
-
-    If matchCount = 1 Then
-        GetBaseVoltageForBus = matchedBase
-    ElseIf matchCount = 0 Then
-        Err.Raise vbObjectError + 1004, "GetBaseVoltageForBus", _
-                  "Napatie uzla " & Format(V_start_kV, "0.###") & " kV nepatri do ziadnej bazovej hladiny (povoleny interval je 0.9 az 1.1 nasobok)."
+' Určenie bázy pre uzol podľa jeho počiatočného napätia
+Public Function GetBaseVoltageForBus(ByVal V_start_kV As Double, ByVal UBase_VN As Double, ByVal UBase_NN As Double) As Double
+    Dim diffVN As Double, diffNN As Double
+    
+    If V_start_kV <= 0 Then GetBaseVoltageForBus = UBase_VN: Exit Function ' Default na VN ak nula
+    
+    diffVN = Abs(V_start_kV - UBase_VN)
+    diffNN = Abs(V_start_kV - UBase_NN)
+    
+    ' Ak je napätie bližšie k NN báze (do 25% rozdielu), použi NN, inak VN
+    If diffNN < diffVN And (diffNN / UBase_NN) < 0.5 Then
+        GetBaseVoltageForBus = UBase_NN
     Else
-        Err.Raise vbObjectError + 1005, "GetBaseVoltageForBus", _
-                  "Napatie uzla " & Format(V_start_kV, "0.###") & " kV patri do viacerych bazovych hladin. Skontrolujte konfiguraciu v data!K3:K8."
+        GetBaseVoltageForBus = UBase_VN
     End If
 End Function
 
