@@ -1,8 +1,3 @@
-Attribute VB_Name = "modYBus"
-'==========================
-' Modul: modYBus
-' Posledn· ˙prava: 15.02.2026 15:15 (Bratislava)
-'==========================
 Option Explicit
 
 Public Sub BuildYBus(ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBus() As Long, ByRef ToBus() As Long, _
@@ -33,7 +28,7 @@ Public Sub BuildYBus(ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBu
                 Y(i, i) = CAdd(Y(i, i), Ys): Y(J, J) = CAdd(Y(J, J), Ys)
                 Y(i, J) = CSub(Y(i, J), Ys): Y(J, i) = CSub(Y(J, i), Ys)
                 
-                ' Pridanie prieËnej kapacity (PI Ël·nok: jB/2 na oboch koncoch)
+                ' Pridanie prieƒçnej kapacity (PI ƒçl√°nok: jB/2 na oboch koncoch)
                 If Bshunt(k) <> 0# Then
                     Dim Ysh As Complex
                     Ysh = CCreate(0, Bshunt(k) / 2#)
@@ -44,7 +39,7 @@ Public Sub BuildYBus(ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBu
         End If
     Next k
     
-    ' Traf·
+    ' Traf√°
     For k = 1 To nTrafo
         If Not IsTrafoIsolated(k) And Not (TrR(k) = 0 And TrX(k) = 0) Then
             Z = CCreate(TrR(k), TrX(k)): Ys = CDiv(CCreate(1, 0), Z): Ym = CCreate(TrG(k), TrB(k))
@@ -83,7 +78,7 @@ Public Sub BuildYBus(ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBu
         End If
     Next k
     
-        ' SpÌnaËe
+        ' Sp√≠naƒçe
     For k = 1 To nSwitches
         If SwStatus(k) > 0 Then
             If Not IsSwitchIsolated(k) And Not (SwR(k) = 0 And SwX(k) = 0) Then
@@ -95,10 +90,10 @@ Public Sub BuildYBus(ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBu
         End If
     Next k
 
-    ' Kompenz·cia
-    ' Pridanie susceptancie (j*B) k diagon·le
+    ' Kompenz√°cia
+    ' Pridanie susceptancie (j*B) k diagon√°le
     For k = 1 To nComp
-        ' Ak je kompenz·cia zapnut· (Status=1)
+        ' Ak je kompenz√°cia zapnut√° (Status=1)
         If CompStatus(k) = 1 Then
             i = CompBus(k)
             ' Y_ii = Y_ii + j*CompB
@@ -107,7 +102,7 @@ Public Sub BuildYBus(ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBu
     Next k
     
     ' Motory VN (pre Load Flow)
-    ' Pridanie admitancie (G + jB) k diagon·le
+    ' Pridanie admitancie (G + jB) k diagon√°le
     For k = 1 To nMotors
         If MotorStatus(k) = 1 Then
             i = MotorBus(k)
@@ -116,7 +111,7 @@ Public Sub BuildYBus(ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBu
         End If
     Next k
     
-    ' IzolovanÈ uzly (aby matica nebola singul·rna)
+    ' Izolovan√© uzly (aby matica nebola singul√°rna)
     For i = 1 To nBuses
         If IsBusIsolated(i) Then Y(i, i) = CCreate(1, 0)
         For J = 1 To nBuses: G(i, J) = Y(i, J).Re: B(i, J) = Y(i, J).Im: Next J
