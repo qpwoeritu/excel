@@ -1,45 +1,9 @@
 Attribute VB_Name = "modYBus"
 '==========================
 ' Modul: modYBus
-' Poslednï¿½ ï¿½prava: 29.04.2026 00:00 (Bratislava)
+' Posledná úprava: 15.02.2026 15:15 (Bratislava)
 '==========================
 Option Explicit
-
-Private Const EPS_ZERO As Double = 0.000000000001
-
-Private Sub AddSeriesElement(ByRef G() As Double, ByRef B() As Double, ByVal i As Long, ByVal j As Long, ByVal g As Double, ByVal b As Double)
-    G(i, i) = G(i, i) + g
-    B(i, i) = B(i, i) + b
-
-    G(j, j) = G(j, j) + g
-    B(j, j) = B(j, j) + b
-
-    G(i, j) = G(i, j) - g
-    B(i, j) = B(i, j) - b
-
-    G(j, i) = G(j, i) - g
-    B(j, i) = B(j, i) - b
-End Sub
-
-Private Sub AddShuntToDiagonal(ByRef G() As Double, ByRef B() As Double, ByVal i As Long, ByVal g As Double, ByVal b As Double)
-    G(i, i) = G(i, i) + g
-    B(i, i) = B(i, i) + b
-End Sub
-
-Private Function TrySeriesAdmittance(ByVal r As Double, ByVal x As Double, ByRef g As Double, ByRef b As Double) As Boolean
-    Dim den As Double
-
-    den = r * r + x * x
-    If den < EPS_ZERO Then
-        TrySeriesAdmittance = False
-        Exit Function
-    End If
-
-    ' 1 / (r + jx) = (r - jx) / (r^2 + x^2)
-    g = r / den
-    b = -x / den
-    TrySeriesAdmittance = True
-End Function
 
 Public Sub BuildYBus(ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBus() As Long, ByRef ToBus() As Long, _
                      ByRef R() As Double, ByRef X() As Double, ByRef BranchStatus() As Integer, ByRef Bshunt() As Double, _
@@ -52,118 +16,115 @@ Public Sub BuildYBus(ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBu
                      ByVal nMotors As Long, ByRef MotorBus() As Long, ByRef MotorG() As Double, ByRef MotorB() As Double, ByRef MotorStatus() As Integer, _
                      ByRef BusNames() As String, ByRef IsBusIsolated() As Boolean, ByRef IsBranchIsolated() As Boolean, ByRef IsTrafoIsolated() As Boolean, ByRef IsReaktorIsolated() As Boolean, ByRef IsDifReaktorIsolated() As Boolean, ByRef IsSwitchIsolated() As Boolean, _
                      ByRef Y() As Complex, ByRef G() As Double, ByRef B() As Double)
-
-    Dim i As Long, j As Long, k As Long
-    Dim gi As Double, bi As Double
-    Dim ratio As Double, invA As Double, invA2 As Double
-
-    ReDim G(1 To nBuses, 1 To nBuses)
-    ReDim B(1 To nBuses, 1 To nBuses)
-
+    
+    Dim i As Long, J As Long, k As Long
+    Dim Z As Complex, Ys As Complex, Ym As Complex, A As Double, t1 As Complex, t2 As Complex
+    
+    ReDim Y(1 To nBuses, 1 To nBuses), G(1 To nBuses, 1 To nBuses), B(1 To nBuses, 1 To nBuses)
+    For i = 1 To nBuses: For J = 1 To nBuses: Y(i, J) = CCreate(0, 0): Next J: Next i
+    
     ' Vedenia
     For k = 1 To nBranches
+        ' Kontrola Statusu
         If BranchStatus(k) > 0 Then
-            If Not IsBranchIsolated(k) Then
-                If TrySeriesAdmittance(R(k), X(k), gi, bi) Then
-                    i = FromBus(k): j = ToBus(k)
-                    Call AddSeriesElement(G, B, i, j, gi, bi)
-
-                    If Bshunt(k) <> 0# Then
-                        Call AddShuntToDiagonal(G, B, i, 0#, Bshunt(k) / 2#)
-                        Call AddShuntToDiagonal(G, B, j, 0#, Bshunt(k) / 2#)
-                    End If
+            If Not IsBranchIsolated(k) And Not (R(k) = 0 And X(k) = 0) Then
+                Z = CCreate(R(k), X(k)): Ys = CDiv(CCreate(1, 0), Z)
+                i = FromBus(k): J = ToBus(k)
+                Y(i, i) = CAdd(Y(i, i), Ys): Y(J, J) = CAdd(Y(J, J), Ys)
+                Y(i, J) = CSub(Y(i, J), Ys): Y(J, i) = CSub(Y(J, i), Ys)
+                
+                ' Pridanie prieènej kapacity (PI èlánok: jB/2 na oboch koncoch)
+                If Bshunt(k) <> 0# Then
+                    Dim Ysh As Complex
+                    Ysh = CCreate(0, Bshunt(k) / 2#)
+                    Y(i, i) = CAdd(Y(i, i), Ysh)
+                    Y(J, J) = CAdd(Y(J, J), Ysh)
                 End If
             End If
         End If
     Next k
-
-    ' Trafï¿½
+    
+    ' Trafá
     For k = 1 To nTrafo
-        If Not IsTrafoIsolated(k) Then
-            If TrySeriesAdmittance(TrR(k), TrX(k), gi, bi) Then
-                i = TrFrom(k): j = TrTo(k)
-                ratio = TrRatio(k)
-                If Abs(ratio) < EPS_ZERO Then ratio = 1#
-                invA = 1# / ratio
-                invA2 = invA * invA
-
-                ' Yii += ys/a^2 + ym
-                G(i, i) = G(i, i) + gi * invA2 + TrG(k)
-                B(i, i) = B(i, i) + bi * invA2 + TrB(k)
-
-                ' Yjj += ys
-                G(j, j) = G(j, j) + gi
-                B(j, j) = B(j, j) + bi
-
-                ' Yij,Yji -= ys/a
-                G(i, j) = G(i, j) - gi * invA
-                B(i, j) = B(i, j) - bi * invA
-                G(j, i) = G(j, i) - gi * invA
-                B(j, i) = B(j, i) - bi * invA
-            End If
+        If Not IsTrafoIsolated(k) And Not (TrR(k) = 0 And TrX(k) = 0) Then
+            Z = CCreate(TrR(k), TrX(k)): Ys = CDiv(CCreate(1, 0), Z): Ym = CCreate(TrG(k), TrB(k))
+            i = TrFrom(k): J = TrTo(k): A = TrRatio(k)
+            t1 = CCreate(Ys.Re / (A * A), Ys.Im / (A * A)) ' ys/a^2
+            Y(i, i) = CAdd(Y(i, i), CAdd(t1, Ym))
+            Y(J, J) = CAdd(Y(J, J), Ys)
+            t2 = CCreate(Ys.Re / A, Ys.Im / A) ' ys/a
+            Y(i, J) = CSub(Y(i, J), t2): Y(J, i) = CSub(Y(J, i), t2)
         End If
     Next k
-
+    
     ' Reaktory
     For k = 1 To nReaktory
-        If Not IsReaktorIsolated(k) Then
-            If TrySeriesAdmittance(ReaktorR(k), ReaktorX(k), gi, bi) Then
-                i = ReaktorFrom(k): j = ReaktorTo(k)
-                Call AddSeriesElement(G, B, i, j, gi, bi)
-            End If
+        If Not IsReaktorIsolated(k) And Not (ReaktorR(k) = 0 And ReaktorX(k) = 0) Then
+            Z = CCreate(ReaktorR(k), ReaktorX(k))
+            Ys = CDiv(CCreate(1, 0), Z)
+            i = ReaktorFrom(k): J = ReaktorTo(k)
+            Y(i, i) = CAdd(Y(i, i), Ys)
+            Y(J, J) = CAdd(Y(J, J), Ys)
+            Y(i, J) = CSub(Y(i, J), Ys)
+            Y(J, i) = CSub(Y(J, i), Ys)
         End If
     Next k
-
-    ' Dif. reaktory
+    
+    ' Dif. Reaktory
     For k = 1 To nDifReaktory
-        If Not IsDifReaktorIsolated(k) Then
-            If TrySeriesAdmittance(DifReaktorR(k), DifReaktorX(k), gi, bi) Then
-                i = DifReaktorFrom(k): j = DifReaktorTo(k)
-                Call AddSeriesElement(G, B, i, j, gi, bi)
-            End If
+        If Not IsDifReaktorIsolated(k) And Not (DifReaktorR(k) = 0 And DifReaktorX(k) = 0) Then
+            Z = CCreate(DifReaktorR(k), DifReaktorX(k))
+            Ys = CDiv(CCreate(1, 0), Z)
+            i = DifReaktorFrom(k): J = DifReaktorTo(k)
+            Y(i, i) = CAdd(Y(i, i), Ys)
+            Y(J, J) = CAdd(Y(J, J), Ys)
+            Y(i, J) = CSub(Y(i, J), Ys)
+            Y(J, i) = CSub(Y(J, i), Ys)
         End If
     Next k
-
-    ' Spï¿½naï¿½e
+    
+        ' Spínaèe
     For k = 1 To nSwitches
         If SwStatus(k) > 0 Then
-            If Not IsSwitchIsolated(k) Then
-                If TrySeriesAdmittance(SwR(k), SwX(k), gi, bi) Then
-                    i = SwFrom(k): j = SwTo(k)
-                    Call AddSeriesElement(G, B, i, j, gi, bi)
-                End If
+            If Not IsSwitchIsolated(k) And Not (SwR(k) = 0 And SwX(k) = 0) Then
+                Z = CCreate(SwR(k), SwX(k)): Ys = CDiv(CCreate(1, 0), Z)
+                i = SwFrom(k): J = SwTo(k)
+                Y(i, i) = CAdd(Y(i, i), Ys): Y(J, J) = CAdd(Y(J, J), Ys)
+                Y(i, J) = CSub(Y(i, J), Ys): Y(J, i) = CSub(Y(J, i), Ys)
             End If
         End If
     Next k
 
-    ' Kompenzï¿½cia
+    ' Kompenzácia
+    ' Pridanie susceptancie (j*B) k diagonále
     For k = 1 To nComp
+        ' Ak je kompenzácia zapnutá (Status=1)
         If CompStatus(k) = 1 Then
             i = CompBus(k)
-            Call AddShuntToDiagonal(G, B, i, 0#, CompB(k))
+            ' Y_ii = Y_ii + j*CompB
+            Y(i, i) = CAdd(Y(i, i), CCreate(0, CompB(k)))
         End If
     Next k
-
-    ' Motory VN
+    
+    ' Motory VN (pre Load Flow)
+    ' Pridanie admitancie (G + jB) k diagonále
     For k = 1 To nMotors
         If MotorStatus(k) = 1 Then
             i = MotorBus(k)
-            Call AddShuntToDiagonal(G, B, i, MotorG(k), MotorB(k))
+            ' Y_ii = Y_ii + (G + jB)
+            Y(i, i) = CAdd(Y(i, i), CCreate(MotorG(k), MotorB(k)))
         End If
     Next k
-
-    ' Izolovanï¿½ uzly + prevod do komplexnej matice pre existujï¿½ci export
-    ReDim Y(1 To nBuses, 1 To nBuses)
+    
+    ' Izolované uzly (aby matica nebola singulárna)
     For i = 1 To nBuses
-        If IsBusIsolated(i) Then
-            G(i, i) = 1#
-            B(i, i) = 0#
-        End If
-
-        For j = 1 To nBuses
-            Y(i, j) = CCreate(G(i, j), B(i, j))
-        Next j
+        If IsBusIsolated(i) Then Y(i, i) = CCreate(1, 0)
+        For J = 1 To nBuses: G(i, J) = Y(i, J).Re: B(i, J) = Y(i, J).Im: Next J
     Next i
-
+    
     Call WriteYMatrix(Y, G, B, BusNames)
 End Sub
+
+
+
+
