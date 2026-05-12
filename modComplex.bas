@@ -1,17 +1,16 @@
-Attribute VB_Name = "modComplex"
 '==========================
 ' Modul: modComplex
-' Posledn· ˙prava: 15.02.2026 15:15 (Bratislava)
+' Posledn√° √∫prava: A1‚ÄìA4 quick wins (perf)
 '==========================
 Option Explicit
 
-' Vytvorenie komplexnÈho ËÌsla
+' Vytvorenie komplexn√©ho ƒç√≠sla
 Public Function CCreate(Re As Double, Im As Double) As Complex
     CCreate.Re = Re
     CCreate.Im = Im
 End Function
 
-' Vytvorenie z pol·rneho tvaru (uhol v stupÚoch)
+' Vytvorenie z pol√°rneho tvaru (uhol v stup≈àoch)
 Public Function CFromPolar(mag As Double, angDeg As Double) As Complex
     Dim angRad As Double
     angRad = angDeg * DEG2RAD
@@ -19,8 +18,16 @@ Public Function CFromPolar(mag As Double, angDeg As Double) As Complex
     CFromPolar.Im = mag * Sin(angRad)
 End Function
 
-' Konverzia do pol·rneho tvaru (uhol v stupÚoch)
-' UDT (Complex) NESMIE byù ByVal v Public proced˙rach
+' Vytvorenie z pol√°rneho tvaru, kde uhol je u≈æ v RADI√ÅNOCH.
+' R√Ωchlej≈°ia varianta k CFromPolar ‚Äì v load-flow cykloch s√∫ uhly nat√≠vne
+' v radi√°noch a nem√° zmysel ich konvertova≈• na stupne a sp√§≈•.
+Public Function CFromPolarRad(mag As Double, angRad As Double) As Complex
+    CFromPolarRad.Re = mag * Cos(angRad)
+    CFromPolarRad.Im = mag * Sin(angRad)
+End Function
+
+' Konverzia do pol√°rneho tvaru (uhol v stup≈àoch)
+' UDT (Complex) NESMIE by≈• ByVal v Public proced√∫rach
 Public Sub CToPolar(Z As Complex, ByRef mag As Double, ByRef angDeg As Double)
     mag = Sqr(Z.Re * Z.Re + Z.Im * Z.Im)
     If mag = 0 Then
@@ -30,7 +37,7 @@ Public Sub CToPolar(Z As Complex, ByRef mag As Double, ByRef angDeg As Double)
     End If
 End Sub
 
-' Pomocn· funkcia pre atan2 (VBA nem· natÌvne)
+' Pomocn√° funkcia pre atan2 (VBA nem√° nat√≠vne)
 Private Function Atn2(Y As Double, X As Double) As Double
     If X > 0 Then
         Atn2 = Atn(Y / X)
@@ -47,19 +54,19 @@ Private Function Atn2(Y As Double, X As Double) As Double
     End If
 End Function
 
-' SËÌtanie
+' Sƒç√≠tanie
 Public Function CAdd(A As Complex, B As Complex) As Complex
     CAdd.Re = A.Re + B.Re
     CAdd.Im = A.Im + B.Im
 End Function
 
-' OdËÌtanie
+' Odƒç√≠tanie
 Public Function CSub(A As Complex, B As Complex) As Complex
     CSub.Re = A.Re - B.Re
     CSub.Im = A.Im - B.Im
 End Function
 
-' N·sobenie
+' N√°sobenie
 Public Function CMul(A As Complex, B As Complex) As Complex
     CMul.Re = A.Re * B.Re - A.Im * B.Im
     CMul.Im = A.Re * B.Im + A.Im * B.Re
@@ -70,7 +77,7 @@ Public Function CDiv(A As Complex, B As Complex) As Complex
     Dim denom As Double
     denom = B.Re * B.Re + B.Im * B.Im
     If denom = 0 Then
-        ' delenie nulou ñ bezpeËn˝ fallback
+        ' delenie nulou ‚Äì bezpeƒçn√Ω fallback
         CDiv.Re = 0#
         CDiv.Im = 0#
     Else
@@ -79,41 +86,35 @@ Public Function CDiv(A As Complex, B As Complex) As Complex
     End If
 End Function
 
-' Umocnenie na celÈ ËÌslo n
+' Umocnenie na cel√© ƒç√≠slo n
 Public Function CPow(A As Complex, n As Long) As Complex
     Dim i As Long
     Dim res As Complex
-    Dim base As Complex   ' lok·lna kÛpia, aby sme nemenili argument
-
+    Dim base As Complex ' lok√°lna k√≥pia, aby sme nemenili argument
     res = CCreate(1#, 0#)
     base = A
-
     If n < 0 Then
         base = CDiv(CCreate(1#, 0#), base)
         n = -n
     End If
-
     For i = 1 To n
         res = CMul(res, base)
     Next i
-
     CPow = res
 End Function
 
-' Absol˙tna hodnota
+' Absol√∫tna hodnota
 Public Function CAbs(Z As Complex) As Double
     CAbs = Sqr(Z.Re * Z.Re + Z.Im * Z.Im)
 End Function
 
-' Argument v stupÚoch
+' Argument v stup≈àoch
 Public Function CArgDeg(Z As Complex) As Double
     CArgDeg = Atn2(Z.Im, Z.Re) * RAD2DEG
 End Function
 
-' Komplexne zdruûenÈ
+' Komplexne zdru≈æen√©
 Public Function CConj(Z As Complex) As Complex
     CConj.Re = Z.Re
     CConj.Im = -Z.Im
 End Function
-
-
