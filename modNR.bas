@@ -2,6 +2,9 @@ Option Explicit
 
 '--------------------------------------
 ' Výpočet činných a jalových výkonov P, Q
+' Optimalizácia A4: predpočítané Cos/Sin pre každý uhol uzla;
+' v dvojnásobnom cykle použijeme súčtové vzorce namiesto opätovných
+' volaní Cos/Sin (znižuje počet transcendentných volaní z 2·n² na 2·n).
 '--------------------------------------
 Private Sub CalcPower(ByVal nBuses As Long, _
                       ByRef G() As Double, _
@@ -10,17 +13,29 @@ Private Sub CalcPower(ByVal nBuses As Long, _
                       ByRef Vang() As Double, _
                       ByRef Pcalc() As Double, _
                       ByRef Qcalc() As Double)
-
     Dim i As Long, k As Long
-    Dim theta As Double
-    
+    Dim costh As Double, sinth As Double, ViVk As Double
+
+    ' Predpočet trigonometrie raz na uzol (A4):
+    '   Cos(Vang(i) - Vang(k)) = cosV(i)*cosV(k) + sinV(i)*sinV(k)
+    '   Sin(Vang(i) - Vang(k)) = sinV(i)*cosV(k) - cosV(i)*sinV(k)
+    Dim cosV() As Double, sinV() As Double
+    ReDim cosV(1 To nBuses)
+    ReDim sinV(1 To nBuses)
+    For i = 1 To nBuses
+        cosV(i) = Cos(Vang(i))
+        sinV(i) = Sin(Vang(i))
+    Next i
+
     For i = 1 To nBuses
         Pcalc(i) = 0#
         Qcalc(i) = 0#
         For k = 1 To nBuses
-            theta = Vang(i) - Vang(k)
-            Pcalc(i) = Pcalc(i) + Vmag(i) * Vmag(k) * (G(i, k) * Cos(theta) + B(i, k) * Sin(theta))
-            Qcalc(i) = Qcalc(i) + Vmag(i) * Vmag(k) * (G(i, k) * Sin(theta) - B(i, k) * Cos(theta))
+            costh = cosV(i) * cosV(k) + sinV(i) * sinV(k)
+            sinth = sinV(i) * cosV(k) - cosV(i) * sinV(k)
+            ViVk = Vmag(i) * Vmag(k)
+            Pcalc(i) = Pcalc(i) + ViVk * (G(i, k) * costh + B(i, k) * sinth)
+            Qcalc(i) = Qcalc(i) + ViVk * (G(i, k) * sinth - B(i, k) * costh)
         Next k
     Next i
 End Sub
@@ -45,14 +60,13 @@ Private Sub BuildMismatchVectors(ByVal nBuses As Long, _
                                  ByRef maxDQ As Double, _
                                  ByRef epsilon As Double, _
                                  ByRef BusBaseKV() As Double)
-
     Dim i As Long, idx As Long
     Dim dP As Double, dQ As Double
     Dim Vspec As Double
-    
+
     maxDP = 0#
     maxDQ = 0#
-    
+
     ' prvá polovica vektora – ?P (pre všetky neznáme uzly: PQ aj PV)
     For i = 1 To nPQ
         idx = PQIndex(i)
@@ -60,7 +74,7 @@ Private Sub BuildMismatchVectors(ByVal nBuses As Long, _
         mismatch(i) = dP
         If Abs(dP) > maxDP Then maxDP = Abs(dP)
     Next i
-    
+
     ' druhá polovica – ?Q (pre PQ) alebo ?V (pre PV)
     For i = 1 To nPQ
         idx = PQIndex(i)
@@ -77,7 +91,7 @@ Private Sub BuildMismatchVectors(ByVal nBuses As Long, _
             mismatch(nPQ + i) = 0#
         End If
     Next i
-    
+
     epsilon = IIf(maxDP > maxDQ, maxDP, maxDQ)
 End Sub
 
@@ -85,6 +99,9 @@ End Sub
 ' Zostavenie Jakobiho matice pre neznáme uzly (PQ aj PV)
 ' J má rozmery (2*nPQ) x (2*nPQ)
 ' Pre PV uzly sa riadky M a L menia (M ostáva ak rátame P, L sa nahrádza rovnicou pre dV)
+'
+' Optimalizácia A4: predpočítané Cos/Sin pre každý uhol uzla;
+' súčtové vzorce namiesto opätovných volaní Cos/Sin v inom cykle.
 '--------------------------------------
 Private Sub BuildJacobian(ByVal nBuses As Long, _
                           ByRef BusTypes() As BusType, _
@@ -97,41 +114,48 @@ Private Sub BuildJacobian(ByVal nBuses As Long, _
                           ByRef PQIndex() As Long, _
                           ByVal nPQ As Long, _
                           ByRef J() As Double)
-
     Dim rowPQ As Long, colPQ As Long
     Dim i As Long, k As Long
-    Dim theta As Double
+    Dim costh As Double, sinth As Double
     Dim H As Double, n As Double, m As Double, L As Double
     Dim Vi As Double
-    
+
+    ' Predpočet trigonometrie raz na uzol (A4)
+    Dim cosV() As Double, sinV() As Double
+    ReDim cosV(1 To nBuses)
+    ReDim sinV(1 To nBuses)
+    For i = 1 To nBuses
+        cosV(i) = Cos(Vang(i))
+        sinV(i) = Sin(Vang(i))
+    Next i
+
     For rowPQ = 1 To nPQ
         i = PQIndex(rowPQ)
         For colPQ = 1 To nPQ
             k = PQIndex(colPQ)
-            
             ' Výpočet derivácií (H, N, M, L) je rovnaký pre všetky typy (závisí od fyziky siete)
             ' Až pri zápise do J rozhodneme, či ich použijeme
-            
             If i = k Then
                 Vi = Vmag(i)
                 If Abs(Vi) < 0.000000001 Then Vi = 0.000000001
-                
                 H = -Qcalc(i) - B(i, i) * Vi * Vi
                 n = Pcalc(i) / Vi + G(i, i) * Vi
                 m = Pcalc(i) - G(i, i) * Vi * Vi
                 L = Qcalc(i) / Vi - B(i, i) * Vi
             Else
-                theta = Vang(i) - Vang(k)
-                H = Vmag(i) * Vmag(k) * (G(i, k) * Sin(theta) - B(i, k) * Cos(theta))
-                n = Vmag(i) * (G(i, k) * Cos(theta) + B(i, k) * Sin(theta))
-                m = -Vmag(i) * Vmag(k) * (G(i, k) * Cos(theta) + B(i, k) * Sin(theta))
-                L = Vmag(i) * (G(i, k) * Sin(theta) - B(i, k) * Cos(theta))
+                ' Cos(Vang(i) - Vang(k)) a Sin(Vang(i) - Vang(k)) cez súčtové vzorce (A4)
+                costh = cosV(i) * cosV(k) + sinV(i) * sinV(k)
+                sinth = sinV(i) * cosV(k) - cosV(i) * sinV(k)
+                H = Vmag(i) * Vmag(k) * (G(i, k) * sinth - B(i, k) * costh)
+                n = Vmag(i) * (G(i, k) * costh + B(i, k) * sinth)
+                m = -Vmag(i) * Vmag(k) * (G(i, k) * costh + B(i, k) * sinth)
+                L = Vmag(i) * (G(i, k) * sinth - B(i, k) * costh)
             End If
-            
+
             ' H a N bloky (dP/dTheta, dP/dV) sú platné pre PQ aj PV (lebo P je špecifikované pre oba)
             J(rowPQ, colPQ) = H
             J(rowPQ, nPQ + colPQ) = n
-            
+
             ' M a L bloky (dQ/dTheta, dQ/dV)
             If BusTypes(i) = btPQ Then
                 ' Pre PQ uzol: Použijeme štandardné M a L
@@ -142,8 +166,8 @@ Private Sub BuildJacobian(ByVal nBuses As Long, _
                 ' Rovnica pre odchýlku jalového výkonu je nahradená podmienkou konštantného napätia (dV = 0).
                 ' To dosiahne riadkom s nulami a jednotkou na diagonále v časti dP/dV.
                 If i = k Then
-                    J(nPQ + rowPQ, colPQ) = 0#        ' dV/dTheta = 0
-                    J(nPQ + rowPQ, nPQ + colPQ) = 1#  ' dV/dV = 1
+                    J(nPQ + rowPQ, colPQ) = 0#         ' dV/dTheta = 0
+                    J(nPQ + rowPQ, nPQ + colPQ) = 1#   ' dV/dV    = 1
                 Else
                     J(nPQ + rowPQ, colPQ) = 0#
                     J(nPQ + rowPQ, nPQ + colPQ) = 0#
@@ -154,46 +178,35 @@ Private Sub BuildJacobian(ByVal nBuses As Long, _
 End Sub
 
 '--------------------------------------
-' Riešenie lineárneho systému J * x = rhs
-' Riešenie J * x = rhs pomocou MINVERSE/MMULT
-'--------------------------------------
 ' Riešenie lineárnej sústavy J * x = rhs pomocou Gaussovej eliminácie
-' Táto metóda je výpočtovo efektívnejšia a stabilnejšia ako inverzia matice.
+' s čiastočným pivotovaním.
+'
+' Optimalizácia A3: oproti pôvodnej verzii sa NEKOPÍRUJE J do A a rhs do B.
+' Pracuje sa priamo s J a rhs in-place. Volajúci ich v ďalšej iterácii znova
+' zostavuje cez BuildJacobian / BuildMismatchVectors, takže to nevadí.
+' POZOR: po návrate sú J aj rhs prepísané (sú v podstate „odpadové").
 '--------------------------------------
 Private Sub SolveLinearSystem_Gauss(ByRef J() As Double, _
                                     ByRef rhs() As Double, _
                                     ByRef solution() As Double)
-
     Dim n As Long
     Dim i As Long, m As Long, k As Long
     Dim maxRow As Long
     Dim maxValue As Double
     Dim temp As Double
     Dim factor As Double
-    Dim A() As Double
-    Dim B() As Double
 
     On Error GoTo ErrHandler
 
     n = UBound(J, 1)
-    ReDim A(1 To n, 1 To n)
-    ReDim B(1 To n)
 
-    ' Kópia do lokálnych polí, aby sme neovplyvnili pôvodnú maticu
-    For i = 1 To n
-        For m = 1 To n
-            A(i, m) = J(i, m)
-        Next m
-        B(i) = rhs(i)
-    Next i
-
-    ' Priama eliminácia s čiastočným pivotovaním
+    ' Priama eliminácia s čiastočným pivotovaním (in-place na J, rhs)
     For i = 1 To n
         maxRow = i
-        maxValue = Abs(A(i, i))
+        maxValue = Abs(J(i, i))
         For k = i + 1 To n
-            If Abs(A(k, i)) > maxValue Then
-                maxValue = Abs(A(k, i))
+            If Abs(J(k, i)) > maxValue Then
+                maxValue = Abs(J(k, i))
                 maxRow = k
             End If
         Next k
@@ -201,26 +214,27 @@ Private Sub SolveLinearSystem_Gauss(ByRef J() As Double, _
         ' Zámena riadkov
         If maxRow <> i Then
             For k = i To n
-                temp = A(i, k)
-                A(i, k) = A(maxRow, k)
-                A(maxRow, k) = temp
+                temp = J(i, k)
+                J(i, k) = J(maxRow, k)
+                J(maxRow, k) = temp
             Next k
-            temp = B(i)
-            B(i) = B(maxRow)
-            B(maxRow) = temp
+            temp = rhs(i)
+            rhs(i) = rhs(maxRow)
+            rhs(maxRow) = temp
         End If
 
         ' Kontrola singularity
-        If Abs(A(i, i)) < 0.000000000000001 Then
-            Err.Raise vbObjectError + 10, "SolveLinearSystem_Gauss", "Matica je singulárna, sústava nemá riešenie."
+        If Abs(J(i, i)) < 0.000000000000001 Then
+            Err.Raise vbObjectError + 10, "SolveLinearSystem_Gauss", _
+                      "Matica je singulárna, sústava nemá riešenie."
         End If
 
         ' Eliminácia pod pivotom
         For k = i + 1 To n
-            factor = A(k, i) / A(i, i)
-            B(k) = B(k) - factor * B(i)
+            factor = J(k, i) / J(i, i)
+            rhs(k) = rhs(k) - factor * rhs(i)
             For m = i + 1 To n
-                A(k, m) = A(k, m) - factor * A(i, m)
+                J(k, m) = J(k, m) - factor * J(i, m)
             Next m
         Next k
     Next i
@@ -228,19 +242,18 @@ Private Sub SolveLinearSystem_Gauss(ByRef J() As Double, _
     ' Spätná substitúcia
     ReDim solution(1 To n)
     For i = n To 1 Step -1
-        temp = B(i)
+        temp = rhs(i)
         For m = i + 1 To n
-            temp = temp - A(i, m) * solution(m)
+            temp = temp - J(i, m) * solution(m)
         Next m
-        solution(i) = temp / A(i, i)
+        solution(i) = temp / J(i, i)
     Next i
-    
+
     Exit Sub
 
 ErrHandler:
     Err.Raise vbObjectError + 10, , "Chyba pri riešení sústavy: " & Err.Description
 End Sub
-
 
 '--------------------------------------
 ' Aktualizácia stavu napätí
@@ -250,31 +263,41 @@ Private Sub UpdateState(ByRef Vmag() As Double, _
                         ByRef PQIndex() As Long, _
                         ByVal nPQ As Long, _
                         ByRef deltaX() As Double)
-
     Dim i As Long, idx As Long
-    
+
     ' prvá polovica vektora – ??
     For i = 1 To nPQ
         idx = PQIndex(i)
         Vang(idx) = Vang(idx) + deltaX(i)
     Next i
-    
+
     ' druhá polovica – ?|V|
     For i = 1 To nPQ
         idx = PQIndex(i)
         Vmag(idx) = Vmag(idx) + deltaX(nPQ + i)
     Next i
 End Sub
-
 '--------------------------------------
 ' Hlavný Newton-Raphson load-flow
+' Optimalizácia A1: vypnutie automatického prepočtu, obnovy obrazovky
+'                   a udalostí počas behu (pôvodný stav sa obnoví).
+' Optimalizácia A2: použitie CFromPolarRad (uhol v radiánoch) pre výpočet
+'                   prúdov spínačov – eliminuje zbytočnú konverziu rad↔deg.
 '--------------------------------------
 Public Sub NewtonRaphsonLoadFlow()
+    ' --- A1: uchovanie pôvodných nastavení Excelu kvôli zrýchleniu ---
+    Dim prevCalc As XlCalculation
+    Dim prevScreen As Boolean
+    Dim prevEvents As Boolean
+    Dim appSettingsSaved As Boolean
+    appSettingsSaved = False
+    ' ----------------------------------------------------------------
+
     Dim SBase_MVA As Double
-    Dim UBase_VN As Double, UBase_NN As Double ' Nové bázy
+    Dim UBase_VN As Double, UBase_NN As Double  ' Nové bázy
     Dim nBuses As Long, nBranches As Long
     Dim BusNames() As String
-    Dim BusBaseKV() As Double ' Nové pole báz pre uzly
+    Dim BusBaseKV() As Double  ' Nové pole báz pre uzly
     Dim BusTypes() As BusType
     Dim Vmag() As Double, Vang() As Double
     Dim Pspec() As Double, Qspec() As Double
@@ -283,40 +306,40 @@ Public Sub NewtonRaphsonLoadFlow()
     Dim R() As Double, X() As Double
     Dim Bshunt() As Double
     Dim BranchStatus() As Integer
-    
+
     ' Transformátory
     Dim nTrafo As Long
     Dim TrFrom() As Long, TrTo() As Long
     Dim TrR() As Double, TrX() As Double
     Dim TrG() As Double, TrB() As Double
     Dim TrRatio() As Double
-    
+
     ' Reaktory
     Dim nReaktory As Long
     Dim ReaktorName() As String
     Dim ReaktorFrom() As Long, ReaktorTo() As Long
     Dim ReaktorR() As Double, ReaktorX() As Double
-    
+
     ' Dif. Reaktory
     Dim nDifReaktory As Long
     Dim DifReaktorName() As String
     Dim DifReaktorFrom() As Long, DifReaktorTo() As Long
     Dim DifReaktorR() As Double, DifReaktorX() As Double
-    
+
     ' Spínače
     Dim nSwitches As Long
     Dim SwitchName() As String
     Dim SwFrom() As Long, SwTo() As Long
     Dim SwR() As Double, SwX() As Double
     Dim SwStatus() As Integer
-    
+
     ' Kompenzácia
     Dim nComp As Long
     Dim CompName() As String
     Dim CompBus() As Long
     Dim CompB() As Double
     Dim CompStatus() As Integer
-    
+
     ' Motory VN
     Dim nMotors As Long
     Dim MotorName() As String
@@ -326,7 +349,7 @@ Public Sub NewtonRaphsonLoadFlow()
     Dim MotorG() As Double
     Dim MotorB() As Double
     Dim MotorStatus() As Integer
-    
+
     ' Topológia - Izolované časti
     Dim IsBusIsolated() As Boolean
     Dim IsBranchIsolated() As Boolean
@@ -336,65 +359,42 @@ Public Sub NewtonRaphsonLoadFlow()
     Dim IsCompIsolated() As Boolean
     Dim IsMotorIsolated() As Boolean
     Dim isolatedCount As Long
-    
+
     Dim Y() As Complex
     Dim G() As Double, B() As Double
-    
     Dim Pcalc() As Double, Qcalc() As Double
-    Dim PQIndex() As Long ' Indexy uzlov, pre ktoré rátame rovnice
-    Dim nPQ As Long ' Počet rovníc (pre PQ uzly 2, pre PV uzly 1) - ALEBO počet aktívnych uzlov?
-    ' Upresnenie: Newton-Raphson rieši pre každý uzol (okrem Slack) rovnice.
-    ' Pre PQ: P a Q. Pre PV: P.
-    ' Moja implementácia predtým predpokladala len PQ uzly v zozname PQIndex a Slack.
-    ' Teraz musíme rozlíšiť PQ a PV.
-    ' Pre jednoduchosť: PQIndex bude obsahovať všetky uzly okrem Slacku.
-    ' A budeme dynamicky zostavovať mismatch vektor a Jacobian.
-    ' Ale pre zachovanie kompatibility s existujúcimi funkciami (BuildMismatchVectors, BuildJacobian)
-    ' musíme byť opatrní. Tie funkcie predpokladajú 2*nPQ veľkosť.
-    
-    ' Nový prístup:
-    ' PQIndex bude zoznam VŠETKÝCH neznámych uzlov (PQ aj PV).
-    ' nPQ bude počet týchto uzlov.
-    ' Mismatch vektor bude mať veľkosť 2*nPQ? Nie.
-    ' Pre PV uzol vynecháme Q rovnicu?
-    ' Áno. Ale to zmení štruktúru Jacobianu.
-    
-    ' Zjednodušenie pre PV uzol v tejto implementácii:
-    ' PV uzol sa bude správať ako PQ uzol, ale v každej iterácii resetujeme |V| na predpísanú hodnotu?
-    ' To je "Type Switching" metóda (nie presne NR, ale funguje).
-    ' Alebo Q-limit checking.
-    ' Ak je to PV uzol, Q je neznáma, |V| je známa.
-    ' V NR formulácii: Neznáme sú dTheta a dV.
-    ' Pre PV uzol je dV = 0.
-    ' Teda stĺpec dV v Jacobiane pre PV uzol môžeme vynechať?
-    ' A riadok dQ tiež vynechať?
-    
-    ' Implementácia "Dummy Equation" pre PV uzol v plnej matici:
-    ' Riadok dQ pre PV uzol nahradíme rovnicou: dV = 0 (alebo V - Vspec = 0).
-    ' V Jacobiane:
-    ' Riadok zodpovedajúci Q rovnici (nPQ + i) bude mať:
-    ' dQ/dTheta = 0
-    ' dQ/dV = 1 (alebo veľké číslo pre vynútenie, ale 1 stačí ak rhs je dV)
-    ' Pravá strana (mismatch): Vspec - Vcalc.
-    ' Tým pádom solver vypočíta dV tak, aby Vcalc + dV = Vspec.
-    
+    Dim PQIndex() As Long  ' Indexy uzlov, pre ktoré rátame rovnice
+    Dim nPQ As Long
+
     Dim slackIndex As Long
     Dim i As Long, k As Long, idx1 As Long, idx2 As Long
     Dim Vi As Complex, Vj As Complex, Zs As Complex, I_pu As Complex
     Dim Ubase As Double, Ibase_A As Double, SwCurrent_A() As Double
-    
+
     Dim maxIter As Long
     Dim epsLimit As Double
     Dim iter As Long, iterUsed As Long
+
     Dim mismatch() As Double
     Dim J() As Double
     Dim deltaX() As Double
     Dim maxDP As Double, maxDQ As Double, eps As Double
+
     Dim startTime As Double, totalTime As Double
     Dim converged As Boolean
-    
+
     On Error GoTo ErrHandler
-    
+
+    ' --- A1: vypnutie automatiky Excelu počas výpočtu ---
+    prevCalc = Application.Calculation
+    prevScreen = Application.ScreenUpdating
+    prevEvents = Application.EnableEvents
+    appSettingsSaved = True
+    Application.Calculation = xlCalculationManual
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    ' ----------------------------------------------------
+
     '--------------------------
     ' Načítanie parametrov z listu index
     ' B3 – max. počet iterácií
@@ -403,41 +403,40 @@ Public Sub NewtonRaphsonLoadFlow()
     With ThisWorkbook.Worksheets("index")
         maxIter = CLng(ParseDouble(.Range("B3").Value))
         If maxIter <= 0 Then maxIter = 20
-        
         epsLimit = ParseDouble(.Range("B4").Value)
         If epsLimit <= 0 Then epsLimit = 0.000001
     End With
-    
+
     '--------------------------
     ' Načítanie uzlov a vedení
     '--------------------------
     ' načítanie bázových hodnôt
     Call GetBaseValues(SBase_MVA, UBase_VN, UBase_NN)
-    
+
     ' načítanie uzlov (skutočné -> p.u.)
     Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, UBase_VN, UBase_NN)
-    
+
     ' načítanie vedení (ohm -> p.u.)
     Call LoadBranchData(nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, BusNames, BusBaseKV, SBase_MVA, Bshunt)
-    
+
     ' načítanie transformátorov (ohm/siemens -> p.u.)
     Call LoadTransformerData(nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, BusNames, BusBaseKV, SBase_MVA)
-    
+
     ' načítanie reaktorov (ohm -> p.u.)
     Call LoadReactorData(nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, BusNames, BusBaseKV, SBase_MVA)
-    
+
     ' načítanie dif. reaktorov
     Call LoadDifReactorData(nDifReaktory, DifReaktorName, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, BusNames, BusBaseKV, SBase_MVA)
-    
+
     ' načítanie spínačov
     Call LoadSwitchData(nSwitches, SwitchName, SwFrom, SwTo, SwR, SwX, SwStatus, BusNames, BusBaseKV, SBase_MVA)
-    
+
     ' načítanie kompenzácie
     Call LoadCompData(nComp, CompName, CompBus, CompB, CompStatus, BusNames, BusBaseKV, SBase_MVA)
-    
+
     ' načítanie motorov
     Call LoadMotorData(nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorG, MotorB, MotorStatus, BusNames, BusBaseKV, SBase_MVA)
-    
+
     '--------------------------
     ' Identifikácia izolovaných častí
     '--------------------------
@@ -451,7 +450,7 @@ Public Sub NewtonRaphsonLoadFlow()
                            nMotors, MotorBus, _
                            BusTypes, _
                            IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, IsCompIsolated, IsMotorIsolated, isolatedCount)
-                           
+
     ' Ak je izolovaný uzol, vynuluj jeho Pspec a Qspec, aby nerobil problémy v mismatch vektore
     For i = 1 To nBuses
         If IsBusIsolated(i) Then
@@ -461,7 +460,7 @@ Public Sub NewtonRaphsonLoadFlow()
             Vmag(i) = 0#
         End If
     Next i
-    
+
     ' tvorba Y-matice v p.u. (s ignorovaním izolovaných)
     Call BuildYBus(nBuses, nBranches, FromBus, ToBus, R, X, BranchStatus, Bshunt, _
                    nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
@@ -472,7 +471,7 @@ Public Sub NewtonRaphsonLoadFlow()
                    nMotors, MotorBus, MotorG, MotorB, MotorStatus, _
                    BusNames, IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, _
                    Y, G, B)
-    
+
     '--------------------------
     ' Identifikácia slack a PQ uzlov
     '--------------------------
@@ -488,15 +487,11 @@ Public Sub NewtonRaphsonLoadFlow()
             nPQ = nPQ + 1
         End If
     Next i
-    
+
     If slackIndex = 0 Then
         Err.Raise vbObjectError + 12, , "Nenájdený slack uzol."
     End If
-    ' Počítame aj PV uzly do zoznamu neznámych
-    If nPQ = 0 Then
-        ' Err.Raise vbObjectError + 13, , "Nie sú žiadne PQ uzly." ' PV môžu byť
-    End If
-    
+
     ' Zrátame všetky non-Slack uzly
     nPQ = 0
     For i = 1 To nBuses
@@ -504,11 +499,11 @@ Public Sub NewtonRaphsonLoadFlow()
             nPQ = nPQ + 1
         End If
     Next i
-    
+
     If nPQ = 0 Then
-         ' Len slack - skončené
-         converged = True
-         GoTo SkipNR
+        ' Len slack - skončené
+        converged = True
+        GoTo SkipNR
     End If
 
     ReDim PQIndex(1 To nPQ)
@@ -521,93 +516,89 @@ Public Sub NewtonRaphsonLoadFlow()
             End If
         End If
     Next i
-    
+
     ' Aktualizácia nPQ (skutočný počet počítaných uzlov)
     nPQ = k
-    ' Musíme zmenšiť pole, ak sme nejaké vynechali
     If nPQ > 0 Then ReDim Preserve PQIndex(1 To nPQ)
-    
+
     ReDim Pcalc(1 To nBuses)
     ReDim Qcalc(1 To nBuses)
+
     If nPQ > 0 Then
         ReDim mismatch(1 To 2 * nPQ)
         ReDim J(1 To 2 * nPQ, 1 To 2 * nPQ)
     End If
-    
+
     '--------------------------
     ' Príprava výsledkových listov
     '--------------------------
     Call ClearResultsSheets
-    
+
     startTime = Timer
     converged = False
     iterUsed = 0
-    
+
     '--------------------------
     ' Hlavný NR iteračný cyklus
     '--------------------------
     If nPQ > 0 Then
         For iter = 1 To maxIter
             iterUsed = iter
-            
+
             ' výpočet P, Q
             Call CalcPower(nBuses, G, B, Vmag, Vang, Pcalc, Qcalc)
-            
+
             ' vektor nesúladu a epsilon (upravený pre PV)
-            ' Pre PV uzol: Mismatch Q (druhá polka) nahradíme (Vspec - Vcalc)
-            ' Alebo upravíme BuildMismatchVectors
-            Call BuildMismatchVectors(nBuses, BusTypes, Pspec, Qspec, Vmag, Pcalc, Qcalc, PQIndex, nPQ, mismatch, maxDP, maxDQ, eps, BusBaseKV) ' Pridane Vmag, BusBaseKV (pre Vspec ak treba, ale Vspec je asi konstanta)
-            ' Pozor: Vspec pre PV uzol. Kde je uložené?
-            ' Predpoklad: Vmag na začiatku iterácie pre PV uzol je nastavené na Vspec.
-            ' A my chceme aby ostalo.
-            
+            Call BuildMismatchVectors(nBuses, BusTypes, Pspec, Qspec, Vmag, Pcalc, Qcalc, PQIndex, nPQ, mismatch, maxDP, maxDQ, eps, BusBaseKV)
+
             ' logovanie napätí a epsilon
             Call LogVoltages(iter, BusNames, Vmag, Vang)
             Call LogEpsilon(iter, maxDP, maxDQ, eps)
-            
+
             ' kontrola konvergencie
             If eps < epsLimit Then
                 converged = True
                 Exit For
             End If
-            
+
             ' Jakobiho matica
             Call BuildJacobian(nBuses, BusTypes, G, B, Vmag, Vang, Pcalc, Qcalc, PQIndex, nPQ, J)
-            
-            ' riešenie J * ?x = mismatch
+
+            ' riešenie J * ?x = mismatch  (POZOR: J a mismatch sú po návrate prepísané)
             Call SolveLinearSystem_Gauss(J, mismatch, deltaX)
-            
+
             ' aktualizácia napätí
             Call UpdateState(Vmag, Vang, PQIndex, nPQ, deltaX)
         Next iter
     Else
         converged = True
     End If
-    
+
 SkipNR:
-       totalTime = Timer - startTime
+    totalTime = Timer - startTime
     Call WriteSummaryToIndex(totalTime, iterUsed, eps, converged)
-    
+
     ' zapíš výsledné napätia na list "uzly" v skutočných hodnotách [kV]
     Call WriteFinalVoltagesToUzly(Vmag, Vang, BusBaseKV)
-    
+
     ' vypočítaj a zapíš prúdy vo vedeniach v reálnych hodnotách
     Call WriteBranchCurrents(nBranches, FromBus, ToBus, R, X, BranchStatus, Vmag, Vang, SBase_MVA, BusBaseKV, Bshunt)
+
     ' Výpočet prúdov spínačmi
     If nSwitches > 0 Then
         ReDim SwCurrent_A(1 To nSwitches)
         For k = 1 To nSwitches
             If SwStatus(k) > 0 Then
                 idx1 = SwFrom(k): idx2 = SwTo(k)
-                Vi = CFromPolar(Vmag(idx1), Vang(idx1) * RAD2DEG)
-                Vj = CFromPolar(Vmag(idx2), Vang(idx2) * RAD2DEG)
+                ' A2: uhly sú v radiánoch, používame CFromPolarRad (bez zbytočnej rad->deg->rad konverzie)
+                Vi = CFromPolarRad(Vmag(idx1), Vang(idx1))
+                Vj = CFromPolarRad(Vmag(idx2), Vang(idx2))
                 Zs = CCreate(SwR(k), SwX(k))
                 If Abs(Zs.Re) > 0.000000001 Or Abs(Zs.Im) > 0.000000001 Then
                     I_pu = CDiv(CSub(Vi, Vj), Zs)
                 Else
                     I_pu = CCreate(0, 0)
                 End If
-                
                 Ubase = BusBaseKV(idx1)
                 If Ubase <> 0# Then
                     Ibase_A = (SBase_MVA * 1000#) / (Sqr(3) * Ubase)
@@ -622,24 +613,22 @@ SkipNR:
         Call WriteSwitchResults(nSwitches, SwCurrent_A)
     End If
 
-    
     ' vypočítaj a zapíš toky v transformátoroch
     Call WriteTransformerFlows(nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, Vmag, Vang, BusBaseKV, SBase_MVA)
-    
+
     ' vypočítaj a zapíš toky v reaktoroch
     Call WriteReactorResults(nReaktory, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, Vmag, Vang, BusBaseKV, SBase_MVA)
-    
+
     ' vypočítaj a zapíš toky v dif. reaktoroch
     Call WriteDifReactorResults(nDifReaktory, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, Vmag, Vang, BusBaseKV, SBase_MVA)
-    
+
     ' zapíš výsledky kompenzácie
     Call WriteCompResults(nComp, CompBus, Vmag, BusBaseKV)
-    
+
     ' zapíš výsledky motorov
     Call WriteMotorResults(nMotors, MotorBus, MotorR, MotorG, MotorB, MotorStatus, Vmag, BusBaseKV, SBase_MVA)
-    
+
     ' Výpočet a zápis celkového zaťaženia uzlov (P, Q, I)
-    ' Posielame Pcalc a Qcalc (výslednú injekciu) namiesto Pspec/Qspec
     Call WriteNodeThroughput(nBuses, BusNames, BusBaseKV, SBase_MVA, _
                              nBranches, FromBus, ToBus, R, X, BranchStatus, _
                              nTrafo, TrFrom, TrTo, TrR, TrX, TrRatio, TrG, TrB, _
@@ -648,7 +637,7 @@ SkipNR:
                              nComp, CompBus, CompB, CompStatus, _
                              nMotors, MotorBus, MotorG, MotorB, MotorStatus, _
                              Vmag, Vang, Pcalc, Qcalc)
-    
+
     ' Report izolovaných (volaný až na konci, aby prepísal stĺpec H na "izolovane")
     Call WriteIsolationReport(nBuses, BusNames, IsBusIsolated, _
                               nBranches, FromBus, ToBus, IsBranchIsolated, _
@@ -658,12 +647,26 @@ SkipNR:
     ' Aktualizácia SLD
     Call UpdateSLD
 
+    ' --- A1: obnova pôvodných nastavení Excelu ---
+    If appSettingsSaved Then
+        Application.Calculation = prevCalc
+        Application.ScreenUpdating = prevScreen
+        Application.EnableEvents = prevEvents
+    End If
+    ' --------------------------------------------
+
     Exit Sub
 
 ErrHandler:
+    ' --- A1: obnova nastavení aj v prípade chyby, aby Excel neostal v manuálnom režime ---
+    If appSettingsSaved Then
+        Application.Calculation = prevCalc
+        Application.ScreenUpdating = prevScreen
+        Application.EnableEvents = prevEvents
+    End If
+    ' --------------------------------------------------------------------------------------
     MsgBox "Chyba v Newton-Raphson výpočte: " & Err.Description, vbCritical
 End Sub
-
 '--------------------------------------
 ' Výpočet a zápis zaťaženia uzlov (P, Q, I) do stĺpcov K, L, M
 '--------------------------------------
@@ -680,99 +683,88 @@ Private Sub WriteNodeThroughput( _
     Dim i As Long, k As Long
     Dim SumP() As Double, SumQ() As Double, SumI() As Double
     Dim ws As Worksheet
-    
+
     ReDim SumP(1 To nBuses), SumQ(1 To nBuses), SumI(1 To nBuses)
-    
+
     ' Pomocné pre výpočty
     Dim Vi As Complex, Vj As Complex, Z As Complex, Ys As Complex
     Dim I_pu As Complex, S_pu As Complex
     Dim I_abs_pu As Double
     Dim P_flow As Double, Q_flow As Double
     Dim Ubase As Double, Ibase_A As Double
-    
+
     ' 1. Vedenia
     For k = 1 To nBranches
         ' Len zapnuté vedenia
         If BranchStatus(k) > 0 Then
             ' Uzol i -> j
             Call CalcBranchFlow(k, FromBus(k), ToBus(k), R(k), X(k), Vmag, Vang, Vi, Vj, Z, Ys, I_pu, S_pu)
+
             ' Tok z i do vedenia (S_pu)
-            ' Ak P tečie DO uzla i, S_pu.Re < 0 (lebo S_pu je tok i->j).
-            ' Teda P_in = -S_pu.Re. Ak P_in > 0 -> započítať.
             P_flow = -S_pu.Re: Q_flow = -S_pu.Im
             I_abs_pu = CAbs(I_pu)
-            
+
             If P_flow > 0 Then SumP(FromBus(k)) = SumP(FromBus(k)) + P_flow
             If Q_flow > 0 Then SumQ(FromBus(k)) = SumQ(FromBus(k)) + Q_flow
-            ' I započítame vždy (zaťaženie zbernice pripojenou vetvou)
             SumI(FromBus(k)) = SumI(FromBus(k)) + I_abs_pu
-            
+
             ' Uzol j -> i (opačný tok)
-            ' I_ji = -I_ij (približne, ak zanedbáme shunt, ale model vedenia tu nemá shunt)
-            ' S_ji = Vj * conj(-I_ij)
             Dim I_ji As Complex, S_ji As Complex
             I_ji = CCreate(-I_pu.Re, -I_pu.Im)
             S_ji = CMul(Vj, CConj(I_ji))
-            
-            P_flow = -S_ji.Re: Q_flow = -S_ji.Im ' Tok DO uzla j
+
+            P_flow = -S_ji.Re: Q_flow = -S_ji.Im
             I_abs_pu = CAbs(I_ji)
-            
+
             If P_flow > 0 Then SumP(ToBus(k)) = SumP(ToBus(k)) + P_flow
             If Q_flow > 0 Then SumQ(ToBus(k)) = SumQ(ToBus(k)) + Q_flow
             SumI(ToBus(k)) = SumI(ToBus(k)) + I_abs_pu
         End If
     Next k
-    
+
     ' 2. Trafá
     For k = 1 To nTrafo
         Call CalcTrafoFlow(k, TrFrom(k), TrTo(k), TrR(k), TrX(k), TrRatio(k), TrG(k), TrB(k), Vmag, Vang, _
-                           Vi, Vj, I_pu, S_pu) ' Vráti I_prim a S_prim (tok z i do trafa)
-        
+                           Vi, Vj, I_pu, S_pu)
+
         ' Primár (i)
         P_flow = -S_pu.Re: Q_flow = -S_pu.Im
         I_abs_pu = CAbs(I_pu)
         If P_flow > 0 Then SumP(TrFrom(k)) = SumP(TrFrom(k)) + P_flow
         If Q_flow > 0 Then SumQ(TrFrom(k)) = SumQ(TrFrom(k)) + Q_flow
         SumI(TrFrom(k)) = SumI(TrFrom(k)) + I_abs_pu
-        
-        ' Sekundár (j) - musíme vypočítať tok na sekundári
-        ' I_sec = (Vj * ys) - (Vi * ys/a) ... z modIO.WriteTransformerFlows
-        ' Vypočítame znova I_sec
+
+        ' Sekundár (j)
         Dim Zs As Complex, ys_t As Complex, Yseries_a As Complex
         Zs = CCreate(TrR(k), TrX(k)): ys_t = CDiv(CCreate(1, 0), Zs)
         Yseries_a = CCreate(ys_t.Re / TrRatio(k), ys_t.Im / TrRatio(k))
-        
+
         Dim term1 As Complex, term2 As Complex, I_sec As Complex, S_sec As Complex
         term1 = CMul(Vj, ys_t)
         term2 = CMul(Vi, Yseries_a)
-        I_sec = CSub(term1, term2) ' Tok z j do trafa?
-        ' Vzorec v WriteTransformerFlows bol: I_j = Vj*ys - Vi*(ys/a). Toto je prúd tečúci z uzla j do siete trafa (ak sa nemýlim v znamienkach).
-        ' Pre istotu: I_sec = I_j. S_sec_inj = Vj * conj(I_sec). Toto je tok Z uzla j DO trafa.
-        
+        I_sec = CSub(term1, term2)
+
         S_sec = CMul(Vj, CConj(I_sec))
-        P_flow = -S_sec.Re: Q_flow = -S_sec.Im ' Tok DO uzla j (z trafa) = -(tok z j do trafa)
-        ' Počkať. S_sec (vypočítané) je tok Z uzla J DO trafa.
-        ' Takže prítok do uzla J je -S_sec.
-        ' P_in = - (S_sec.Re).
-        
+
+        P_flow = -S_sec.Re: Q_flow = -S_sec.Im
         I_abs_pu = CAbs(I_sec)
+
         If P_flow > 0 Then SumP(TrTo(k)) = SumP(TrTo(k)) + P_flow
         If Q_flow > 0 Then SumQ(TrTo(k)) = SumQ(TrTo(k)) + Q_flow
         SumI(TrTo(k)) = SumI(TrTo(k)) + I_abs_pu
     Next k
-    
+
     ' 3. Reaktory
     For k = 1 To nReaktory
-        ' Analogicky ako vedenie
         Call CalcBranchFlow(k, ReaktorFrom(k), ReaktorTo(k), ReaktorR(k), ReaktorX(k), Vmag, Vang, Vi, Vj, Z, Ys, I_pu, S_pu)
-        
+
         ' Uzol i
         P_flow = -S_pu.Re: Q_flow = -S_pu.Im
         I_abs_pu = CAbs(I_pu)
         If P_flow > 0 Then SumP(ReaktorFrom(k)) = SumP(ReaktorFrom(k)) + P_flow
         If Q_flow > 0 Then SumQ(ReaktorFrom(k)) = SumQ(ReaktorFrom(k)) + Q_flow
         SumI(ReaktorFrom(k)) = SumI(ReaktorFrom(k)) + I_abs_pu
-        
+
         ' Uzol j
         I_ji = CCreate(-I_pu.Re, -I_pu.Im)
         S_ji = CMul(Vj, CConj(I_ji))
@@ -782,18 +774,18 @@ Private Sub WriteNodeThroughput( _
         If Q_flow > 0 Then SumQ(ReaktorTo(k)) = SumQ(ReaktorTo(k)) + Q_flow
         SumI(ReaktorTo(k)) = SumI(ReaktorTo(k)) + I_abs_pu
     Next k
-    
+
     ' 4. Dif Reaktory
     For k = 1 To nDifReaktory
         Call CalcBranchFlow(k, DifReaktorFrom(k), DifReaktorTo(k), DifReaktorR(k), DifReaktorX(k), Vmag, Vang, Vi, Vj, Z, Ys, I_pu, S_pu)
-        
+
         ' Uzol i
         P_flow = -S_pu.Re: Q_flow = -S_pu.Im
         I_abs_pu = CAbs(I_pu)
         If P_flow > 0 Then SumP(DifReaktorFrom(k)) = SumP(DifReaktorFrom(k)) + P_flow
         If Q_flow > 0 Then SumQ(DifReaktorFrom(k)) = SumQ(DifReaktorFrom(k)) + Q_flow
         SumI(DifReaktorFrom(k)) = SumI(DifReaktorFrom(k)) + I_abs_pu
-        
+
         ' Uzol j
         I_ji = CCreate(-I_pu.Re, -I_pu.Im)
         S_ji = CMul(Vj, CConj(I_ji))
@@ -803,95 +795,66 @@ Private Sub WriteNodeThroughput( _
         If Q_flow > 0 Then SumQ(DifReaktorTo(k)) = SumQ(DifReaktorTo(k)) + Q_flow
         SumI(DifReaktorTo(k)) = SumI(DifReaktorTo(k)) + I_abs_pu
     Next k
-    
+
     ' 5. Kompenzácia (Shunt)
     For k = 1 To nComp
         If CompStatus(k) = 1 Then
-            ' I = V * Y = V * (jB)
-            ' S = V * conj(I) = V * conj(V*jB) = |V|^2 * (-jB)
-            ' P = 0, Q = -|V|^2 * B
-            ' Ak B > 0 (kapacita), Q < 0 (dodáva do siete).
-            ' Prítok do uzla (zo strany kompenzácie):
-            ' S_in = - S_comp = - (0 - j*|V|^2*B) = j*|V|^2*B.
-            ' Q_in = |V|^2 * B.
             i = CompBus(k)
             Dim V_sq As Double
             V_sq = Vmag(i) * Vmag(i)
-            
             P_flow = 0
             Q_flow = V_sq * CompB(k)
-            
-            ' Prúd I = |V| * |B|
             I_abs_pu = Vmag(i) * Abs(CompB(k))
-            
+
             If P_flow > 0 Then SumP(i) = SumP(i) + P_flow
             If Q_flow > 0 Then SumQ(i) = SumQ(i) + Q_flow
             SumI(i) = SumI(i) + I_abs_pu
         End If
     Next k
-    
+
     ' 6. Motory (Shunt)
     For k = 1 To nMotors
         If MotorStatus(k) = 1 Then
-            ' Y = G + jB
-            ' S_motor = |V|^2 * conj(Y) = |V|^2 * (G - jB)
-            ' S_in = -S_motor = |V|^2 * (-G + jB)
-            ' P_in = -|V|^2 * G (G je zvyčajne kladné = odber, takže P_in < 0)
-            ' Q_in = |V|^2 * B (B zvyčajne záporné pre induktanciu -> Q_in < 0)
-            
             i = MotorBus(k)
             V_sq = Vmag(i) * Vmag(i)
-            
             P_flow = -V_sq * MotorG(k)
             Q_flow = V_sq * MotorB(k)
-            
             I_abs_pu = Vmag(i) * Sqr(MotorG(k) * MotorG(k) + MotorB(k) * MotorB(k))
-            
+
             If P_flow > 0 Then SumP(i) = SumP(i) + P_flow
             If Q_flow > 0 Then SumQ(i) = SumQ(i) + Q_flow
             SumI(i) = SumI(i) + I_abs_pu
         End If
     Next k
-    
+
     ' 7. Injekcia do uzla (Generátory / Odbery)
-    ' Používame Pcalc/Qcalc, čo je skutočná bilancia uzla po výpočte (Výroba - Spotreba).
-    ' Pre Slack uzol obsahuje Pcalc skutočnú dodávku.
-    ' Pre PQ uzly obsahuje Pcalc = Pspec.
-    
     For i = 1 To nBuses
-        ' Pcalc > 0 znamená čistá dodávka do siete (Generátor) -> Prítok P
         If Pcalc(i) > 0 Then
             SumP(i) = SumP(i) + Pcalc(i)
         End If
-        
-        ' Qcalc > 0 znamená čistá dodávka Q do siete -> Prítok Q
         If Qcalc(i) > 0 Then
             SumQ(i) = SumQ(i) + Qcalc(i)
         End If
-        
-        ' Prúd injekcie (či už generátor alebo odber)
-        ' I_inj = |S_calc| / |V|
-        ' Tento prúd tečie medzi uzlom a "okolím" (zemou/zdrojom). Je to prúdové zaťaženie prípojnice zo strany zdroja/záťaže.
+
         If Vmag(i) > 0.0000001 Then
             I_abs_pu = Sqr(Pcalc(i) * Pcalc(i) + Qcalc(i) * Qcalc(i)) / Vmag(i)
             SumI(i) = SumI(i) + I_abs_pu
         End If
     Next i
-    
+
     ' Zápis do listu "uzly"
     Set ws = ThisWorkbook.Worksheets("uzly")
+
     ' Hlavičky
-    ws.Cells(2, 11).Value = "Sum P_in [MW]"    ' K
-    ws.Cells(2, 12).Value = "Sum Q_in [Mvar]"  ' L
-    ws.Cells(2, 13).Value = "Sum I [A]"        ' M
-    
+    ws.Cells(2, 11).Value = "Sum P_in [MW]"     ' K
+    ws.Cells(2, 12).Value = "Sum Q_in [Mvar]"   ' L
+    ws.Cells(2, 13).Value = "Sum I [A]"         ' M
+
     For i = 1 To nBuses
-        ' Prepočet na reálne jednotky
         Dim P_real As Double, Q_real As Double, I_real As Double
-        
         P_real = SumP(i) * SBase_MVA
         Q_real = SumQ(i) * SBase_MVA
-        
+
         Ubase = BusBaseKV(i)
         If Ubase <> 0 Then
             Ibase_A = (SBase_MVA * 1000#) / (Sqr(3) * Ubase)
@@ -899,24 +862,23 @@ Private Sub WriteNodeThroughput( _
             Ibase_A = 0
         End If
         I_real = SumI(i) * Ibase_A
-        
+
         ws.Cells(2 + i, 11).Value = Round(P_real, 2)
         ws.Cells(2 + i, 12).Value = Round(Q_real, 2)
         ws.Cells(2 + i, 13).Value = Round(I_real, 2)
     Next i
-
 End Sub
 
 ' Pomocná: Výpočet toku na začiatku vetvy (I_ij, S_ij)
+' A2: použitý CFromPolarRad – odpadá konverzia uhla radiány -> stupne -> radiány.
 Private Sub CalcBranchFlow(ByVal k As Long, ByVal i As Long, ByVal J As Long, _
                            ByVal R As Double, ByVal X As Double, _
                            ByRef Vmag() As Double, ByRef Vang() As Double, _
                            ByRef Vi As Complex, ByRef Vj As Complex, _
                            ByRef Z As Complex, ByRef Ys As Complex, _
                            ByRef I_pu As Complex, ByRef S_pu As Complex)
-    
-    Vi = CFromPolar(Vmag(i), Vang(i) * RAD2DEG)
-    Vj = CFromPolar(Vmag(J), Vang(J) * RAD2DEG)
+    Vi = CFromPolarRad(Vmag(i), Vang(i))
+    Vj = CFromPolarRad(Vmag(J), Vang(J))
     Z = CCreate(R, X)
     ' I_ij = (Vi - Vj) / Z
     I_pu = CDiv(CSub(Vi, Vj), Z)
@@ -925,32 +887,30 @@ Private Sub CalcBranchFlow(ByVal k As Long, ByVal i As Long, ByVal J As Long, _
 End Sub
 
 ' Pomocná: Výpočet toku trafa (primár)
+' A2: použitý CFromPolarRad – odpadá konverzia uhla radiány -> stupne -> radiány.
 Private Sub CalcTrafoFlow(ByVal k As Long, ByVal i As Long, ByVal J As Long, _
                           ByVal R As Double, ByVal X As Double, ByVal Ratio As Double, _
                           ByVal G As Double, ByVal B As Double, _
                           ByRef Vmag() As Double, ByRef Vang() As Double, _
                           ByRef Vi As Complex, ByRef Vj As Complex, _
                           ByRef I_prim As Complex, ByRef S_prim As Complex)
-    
     Dim Zs As Complex, Ys As Complex, Ym As Complex
     Dim term1 As Complex, term2 As Complex
     Dim Yseries_a2 As Complex, Yseries_a As Complex
-    
-    Vi = CFromPolar(Vmag(i), Vang(i) * RAD2DEG)
-    Vj = CFromPolar(Vmag(J), Vang(J) * RAD2DEG)
-    
+
+    Vi = CFromPolarRad(Vmag(i), Vang(i))
+    Vj = CFromPolarRad(Vmag(J), Vang(J))
     Zs = CCreate(R, X)
     Ys = CDiv(CCreate(1, 0), Zs)
     Ym = CCreate(G, B)
-    
+
     ' I_prim (z i)
     Yseries_a2 = CCreate(Ys.Re / (Ratio * Ratio), Ys.Im / (Ratio * Ratio))
     term1 = CMul(Vi, CAdd(Yseries_a2, Ym))
-    
+
     Yseries_a = CCreate(Ys.Re / Ratio, Ys.Im / Ratio)
     term2 = CMul(Vj, Yseries_a)
-    
+
     I_prim = CSub(term1, term2)
     S_prim = CMul(Vi, CConj(I_prim))
 End Sub
-
