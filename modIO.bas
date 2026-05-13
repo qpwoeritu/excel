@@ -3,9 +3,10 @@ Option Explicit
 ' Načítanie dát uzlov z listu "uzly"
 ' Skutočné hodnoty -> prepočet do pomerných (p.u.)
 '
-'
-' SBase_MVA, UBase_kV sú bázové hodnoty zo "index"
-' UBase_VN, UBase_NN - nové bázy pre rozlíšenie hladín
+' SBase_MVA - bázový výkon zo data!K11
+' VLevels   - pole napäťových hladín zo data!K3:K8 (kV); každý uzol dostane
+'             najbližšiu hladinu ako menovité napätie a Vmag = V_kV / U_base
+'             ako prvý odhad (Slack/PV/PQ rovnako).
 Public Sub LoadBusData( _
     ByRef nBuses As Long, _
     ByRef BusNames() As String, _
@@ -16,8 +17,7 @@ Public Sub LoadBusData( _
     ByRef Qspec() As Double, _
     ByRef BusBaseKV() As Double, _
     ByVal SBase_MVA As Double, _
-    ByVal UBase_VN As Double, _
-    ByVal UBase_NN As Double)
+    ByRef VLevels() As Double)
 
     Dim ws As Worksheet
     Dim lastRow As Long
@@ -66,16 +66,12 @@ Public Sub LoadBusData( _
         P_MW = ParseDouble(ws.Cells(2 + i, 6).Value)   ' F: P [MW]
         Q_mvar = ParseDouble(ws.Cells(2 + i, 7).Value) ' G: Q [Mvar]
         
-        ' Určenie bázy pre uzol
-        busBase = GetBaseVoltageForBus(V_kV, UBase_VN, UBase_NN)
+        ' Určenie bázy pre uzol - najbližšia hladina z data!K3:K8 (tvrdá kontrola pri >25 %)
+        busBase = GetBaseVoltageForBus(V_kV, VLevels, BusNames(i))
         BusBaseKV(i) = busBase
-        
-        ' prepočet do p.u.
-        If busBase <> 0# Then
-            Vmag(i) = V_kV / busBase
-        Else
-            Vmag(i) = 1#
-        End If
+
+        ' prvý odhad napätia v p.u. (rovnako pre Slack, PV aj PQ)
+        Vmag(i) = V_kV / busBase
         
         ' Pôvodne načítanie uhla zo stĺpca E:
         ' Vang(i) = ParseDouble(ws.Cells(2 + i, 5).Value) * DEG2RAD

@@ -61,10 +61,10 @@ Public Sub CmdBuildYMatrix()
     Dim Y() As Complex
     Dim G() As Double, B() As Double
     Dim SBase_MVA As Double
-    Dim UBase_VN As Double, UBase_NN As Double
-    
+    Dim VLevels() As Double
+
     ' bázy
-    Call GetBaseValues(SBase_MVA, UBase_VN, UBase_NN)
+    Call GetBaseValues(SBase_MVA, VLevels)
     
     ' Topológia - Izolované časti
     Dim IsBusIsolated() As Boolean
@@ -78,7 +78,7 @@ Public Sub CmdBuildYMatrix()
     Dim isolatedCount As Long
 
     ' uzly a vetvy v p.u.
-    Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, UBase_VN, UBase_NN)
+    Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, VLevels)
     Call LoadBranchData(nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, BusNames, BusBaseKV, SBase_MVA, BranchBshunt)
     Call LoadTransformerData(nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, BusNames, BusBaseKV, SBase_MVA)
     Call LoadReactorData(nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, BusNames, BusBaseKV, SBase_MVA)
@@ -86,7 +86,7 @@ Public Sub CmdBuildYMatrix()
     Call LoadSwitchData(nSwitches, SwitchName, SwFrom, SwTo, SwR, SwX, SwStatus, BusNames, BusBaseKV, SBase_MVA)
     Call LoadCompData(nComp, CompName, CompBus, CompB, CompStatus, BusNames, BusBaseKV, SBase_MVA)
     Call LoadMotorData(nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorG, MotorB, MotorStatus, BusNames, BusBaseKV, SBase_MVA)
-    
+
     ' Identifikácia izolovaných častí (aj pre samostatnú stavbu matice)
     ' Posielame BranchStatus
     Call FindIsolatedParts(nBuses, nBranches, FromBus, ToBus, BranchStatus, _
@@ -186,8 +186,8 @@ Public Sub CmdCalculateShortCircuit()
     Dim MotorStatus() As Integer
     
     Dim SBase_MVA As Double
-    Dim UBase_VN As Double, UBase_NN As Double
-    
+    Dim VLevels() As Double
+
     Dim Ik_input() As Double
     Dim Ik_result() As Double
     Dim i As Long, ws As Worksheet
@@ -206,8 +206,8 @@ Public Sub CmdCalculateShortCircuit()
     Dim isolatedCount As Long
     
     ' Načítanie dát
-    Call GetBaseValues(SBase_MVA, UBase_VN, UBase_NN)
-    Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, UBase_VN, UBase_NN)
+    Call GetBaseValues(SBase_MVA, VLevels)
+    Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, VLevels)
     Call LoadBranchData(nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, BusNames, BusBaseKV, SBase_MVA, BranchBshunt)
     Call LoadTransformerData(nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, BusNames, BusBaseKV, SBase_MVA)
     Call LoadReactorData(nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, BusNames, BusBaseKV, SBase_MVA)
