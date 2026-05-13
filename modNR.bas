@@ -294,7 +294,7 @@ Public Sub NewtonRaphsonLoadFlow()
     ' ----------------------------------------------------------------
 
     Dim SBase_MVA As Double
-    Dim UBase_VN As Double, UBase_NN As Double  ' Nové bázy
+    Dim VLevels() As Double  ' Napäťové hladiny zo data!K3:K8
     Dim nBuses As Long, nBranches As Long
     Dim BusNames() As String
     Dim BusBaseKV() As Double  ' Nové pole báz pre uzly
@@ -411,10 +411,10 @@ Public Sub NewtonRaphsonLoadFlow()
     ' Načítanie uzlov a vedení
     '--------------------------
     ' načítanie bázových hodnôt
-    Call GetBaseValues(SBase_MVA, UBase_VN, UBase_NN)
+    Call GetBaseValues(SBase_MVA, VLevels)
 
     ' načítanie uzlov (skutočné -> p.u.)
-    Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, UBase_VN, UBase_NN)
+    Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, VLevels)
 
     ' načítanie vedení (ohm -> p.u.)
     Call LoadBranchData(nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, BusNames, BusBaseKV, SBase_MVA, Bshunt)
