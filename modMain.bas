@@ -77,15 +77,17 @@ Public Sub CmdBuildYMatrix()
     Dim IsMotorIsolated() As Boolean
     Dim isolatedCount As Long
 
+    Dim busDict As Object
+
     ' uzly a vetvy v p.u.
-    Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, VLevels)
-    Call LoadBranchData(nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, BusNames, BusBaseKV, SBase_MVA, BranchBshunt)
-    Call LoadTransformerData(nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, BusNames, BusBaseKV, SBase_MVA)
-    Call LoadReactorData(nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, BusNames, BusBaseKV, SBase_MVA)
-    Call LoadDifReactorData(nDifReaktory, DifReaktorName, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, BusNames, BusBaseKV, SBase_MVA)
-    Call LoadSwitchData(nSwitches, SwitchName, SwFrom, SwTo, SwR, SwX, SwStatus, BusNames, BusBaseKV, SBase_MVA)
-    Call LoadCompData(nComp, CompName, CompBus, CompB, CompStatus, BusNames, BusBaseKV, SBase_MVA)
-    Call LoadMotorData(nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorG, MotorB, MotorStatus, BusNames, BusBaseKV, SBase_MVA)
+    Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, VLevels, busDict)
+    Call LoadBranchData(nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, BusNames, BusBaseKV, SBase_MVA, BranchBshunt, busDict)
+    Call LoadTransformerData(nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, BusNames, BusBaseKV, SBase_MVA, busDict)
+    Call LoadReactorData(nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, BusNames, BusBaseKV, SBase_MVA, busDict)
+    Call LoadDifReactorData(nDifReaktory, DifReaktorName, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, BusNames, BusBaseKV, SBase_MVA, busDict)
+    Call LoadSwitchData(nSwitches, SwitchName, SwFrom, SwTo, SwR, SwX, SwStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
+    Call LoadCompData(nComp, CompName, CompBus, CompB, CompStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
+    Call LoadMotorData(nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorG, MotorB, MotorStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
 
     ' Identifikácia izolovaných častí (aj pre samostatnú stavbu matice)
     ' Posielame BranchStatus
@@ -98,12 +100,12 @@ Public Sub CmdBuildYMatrix()
                            nMotors, MotorBus, _
                            BusTypes, _
                            IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, IsCompIsolated, IsMotorIsolated, isolatedCount)
-                           
+
     Call WriteIsolationReport(nBuses, BusNames, IsBusIsolated, _
                               nBranches, FromBus, ToBus, IsBranchIsolated, _
                               nTrafo, TrFrom, TrTo, IsTrafoIsolated, _
                               nComp, CompBus, IsCompIsolated)
-    
+
     Call BuildYBus(nBuses, nBranches, FromBus, ToBus, R, X, BranchStatus, BranchBshunt, _
                    nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
                    nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, _
@@ -205,16 +207,18 @@ Public Sub CmdCalculateShortCircuit()
     Dim IsGenIsolated() As Boolean
     Dim isolatedCount As Long
     
+    Dim busDict As Object
+
     ' Načítanie dát
     Call GetBaseValues(SBase_MVA, VLevels)
-    Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, VLevels)
-    Call LoadBranchData(nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, BusNames, BusBaseKV, SBase_MVA, BranchBshunt)
-    Call LoadTransformerData(nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, BusNames, BusBaseKV, SBase_MVA)
-    Call LoadReactorData(nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, BusNames, BusBaseKV, SBase_MVA)
-    Call LoadDifReactorData(nDifReaktory, DifReaktorName, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, BusNames, BusBaseKV, SBase_MVA)
-    Call LoadSwitchData(nSwitches, SwitchName, SwFrom, SwTo, SwR, SwX, SwStatus, BusNames, BusBaseKV, SBase_MVA)
-    Call LoadCompData(nComp, CompName, CompBus, CompB, CompStatus, BusNames, BusBaseKV, SBase_MVA)
-    Call LoadMotorData(nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorG, MotorB, MotorStatus, BusNames, BusBaseKV, SBase_MVA)
+    Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, VLevels, busDict)
+    Call LoadBranchData(nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, BusNames, BusBaseKV, SBase_MVA, BranchBshunt, busDict)
+    Call LoadTransformerData(nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, BusNames, BusBaseKV, SBase_MVA, busDict)
+    Call LoadReactorData(nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, BusNames, BusBaseKV, SBase_MVA, busDict)
+    Call LoadDifReactorData(nDifReaktory, DifReaktorName, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, BusNames, BusBaseKV, SBase_MVA, busDict)
+    Call LoadSwitchData(nSwitches, SwitchName, SwFrom, SwTo, SwR, SwX, SwStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
+    Call LoadCompData(nComp, CompName, CompBus, CompB, CompStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
+    Call LoadMotorData(nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorG, MotorB, MotorStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
     
     ' Identifikácia izolovaných (aby výpočet nezlyhal na singulárnej matici)
     Call FindIsolatedParts(nBuses, nBranches, FromBus, ToBus, BranchStatus, _
@@ -230,9 +234,15 @@ Public Sub CmdCalculateShortCircuit()
     ' Načítanie vstupných skratov zo stĺpca J (pre Slack)
     ReDim Ik_input(1 To nBuses)
     Set ws = ThisWorkbook.Worksheets("uzly")
-    For i = 1 To nBuses
-        Ik_input(i) = ParseDouble(ws.Cells(2 + i, 10).Value)
-    Next i
+    If nBuses = 1 Then
+        Ik_input(1) = ParseDouble(ws.Cells(3, 10).Value)
+    Else
+        Dim ikArr As Variant
+        ikArr = ws.Range(ws.Cells(3, 10), ws.Cells(2 + nBuses, 10)).Value
+        For i = 1 To nBuses
+            Ik_input(i) = ParseDouble(ikArr(i, 1))
+        Next i
+    End If
     
     ' Výpočet (Kompenzácia tu nie je, lebo sa ignoruje pri skratoch)
     ' Motory sú zahrnuté

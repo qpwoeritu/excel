@@ -21,7 +21,7 @@ FailSafe:
     ParseDouble = 0#
 End Function
 
-' Vyhľadanie indexu uzla
+' Vyhľadanie indexu uzla (lineárne, ponechané pre kompatibilitu)
 Public Function GetBusIndex(ByVal busName As String, ByRef BusNames() As String) As Long
     Dim i As Long
     For i = LBound(BusNames) To UBound(BusNames)
@@ -31,6 +31,28 @@ Public Function GetBusIndex(ByVal busName As String, ByRef BusNames() As String)
         End If
     Next i
     GetBusIndex = 0
+End Function
+
+' Postaví hash mapu meno uzla -> index (O(1) lookup namiesto O(N) lineárneho hľadania)
+Public Function BuildBusIndexDict(ByRef BusNames() As String) As Object
+    Dim d As Object, i As Long
+    Set d = CreateObject("Scripting.Dictionary")
+    d.CompareMode = vbTextCompare
+    For i = LBound(BusNames) To UBound(BusNames)
+        d(Trim$(BusNames(i))) = i
+    Next i
+    Set BuildBusIndexDict = d
+End Function
+
+' Lookup cez dict, vracia 0 ak neexistuje (zachováva sémantiku GetBusIndex)
+Public Function GetBusIndexD(ByVal busName As String, ByRef busDict As Object) As Long
+    Dim k As String
+    k = Trim$(busName)
+    If busDict.Exists(k) Then
+        GetBusIndexD = busDict(k)
+    Else
+        GetBusIndexD = 0
+    End If
 End Function
 
 ' Nájde prvý voľný riadok
