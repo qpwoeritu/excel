@@ -971,57 +971,47 @@ Public Sub WriteYMatrix( _
     Dim n As Long
     Dim i As Long, J As Long
     Dim row0 As Long, col0 As Long
-    Dim txt As String
-    
+    Dim arr As Variant
+    Dim startRowB As Long
+
     Set ws = GetOrCreateSheet("Y_matica")
     ws.Cells.Clear
-    
+
     n = UBound(BusNames)
-    
+
     row0 = 1
     col0 = 1
-    
-    ' hlavičky stĺpcov
+
+    ' Blok G = Re(Y) - hlavička + matica v jednom Variant poli, jeden Range.Value zápis
+    ws.Cells(row0, col0).Value = "G = Re(Y)"
+    ReDim arr(1 To n + 1, 1 To n + 1)
+    arr(1, 1) = ""
     For J = 1 To n
-        ws.Cells(row0, col0 + J).Value = BusNames(J)
-    Next J
-    
-    ' hlavičky riadkov + samotná matica G+jB
-    For i = 1 To n
-        ws.Cells(row0 + i, col0).Value = BusNames(i)
-        For J = 1 To n
-            txt = Format(G(i, J), "0.000000") & IIf(B(i, J) >= 0, "+j" & Format(B(i, J), "0.000000"), "-j" & Format(Abs(B(i, J)), "0.000000"))
-            ws.Cells(row0 + i, col0 + J).Value = txt
-        Next J
-    Next i
-    
-    ' pomocný blok G
-    Dim startRowG As Long
-    startRowG = row0 + n + 2
-    ws.Cells(startRowG, col0).Value = "G = Re(Y)"
-    For J = 1 To n
-        ws.Cells(startRowG + 1, col0 + J).Value = BusNames(J)
+        arr(1, J + 1) = BusNames(J)
     Next J
     For i = 1 To n
-        ws.Cells(startRowG + 1 + i, col0).Value = BusNames(i)
+        arr(i + 1, 1) = BusNames(i)
         For J = 1 To n
-            ws.Cells(startRowG + 1 + i, col0 + J).Value = G(i, J)
+            arr(i + 1, J + 1) = G(i, J)
         Next J
     Next i
-    
-    ' pomocný blok B
-    Dim startRowB As Long
-    startRowB = startRowG + n + 4
+    ws.Range(ws.Cells(row0 + 1, col0), ws.Cells(row0 + 1 + n, col0 + n)).Value = arr
+
+    ' Blok B = Im(Y)
+    startRowB = row0 + n + 3
     ws.Cells(startRowB, col0).Value = "B = Im(Y)"
+    ReDim arr(1 To n + 1, 1 To n + 1)
+    arr(1, 1) = ""
     For J = 1 To n
-        ws.Cells(startRowB + 1, col0 + J).Value = BusNames(J)
+        arr(1, J + 1) = BusNames(J)
     Next J
     For i = 1 To n
-        ws.Cells(startRowB + 1 + i, col0).Value = BusNames(i)
+        arr(i + 1, 1) = BusNames(i)
         For J = 1 To n
-            ws.Cells(startRowB + 1 + i, col0 + J).Value = B(i, J)
+            arr(i + 1, J + 1) = B(i, J)
         Next J
     Next i
+    ws.Range(ws.Cells(startRowB + 1, col0), ws.Cells(startRowB + 1 + n, col0 + n)).Value = arr
 End Sub
 
 ' Vymazanie / príprava výsledkových listov "napatia" a "epsilon"
@@ -1046,44 +1036,45 @@ Public Sub ClearResultsSheets()
     wsE.Cells(1, 4).Value = "epsilon"
 End Sub
 
-' Logovanie napätí v jednej iterácii
-Public Sub LogVoltages(ByVal iter As Long, _
-                       ByRef BusNames() As String, _
-                       ByRef Vmag() As Double, _
-                       ByRef Vang() As Double)
+' Flush buffrov napätí / epsilon po skončení NR slučky (jeden Range.Value zápis na list)
+' VBuf má 4 stĺpce: iter, BusName, |V|, theta_deg; VRow = počet naplnených riadkov.
+Public Sub FlushVoltageLog(ByRef VBuf As Variant, ByVal VRow As Long)
+    If VRow < 1 Then Exit Sub
 
     Dim ws As Worksheet
-    Dim i As Long
-    Dim rowStart As Long
-    
+    Dim outArr As Variant
+    Dim r As Long, c As Long
+
     Set ws = GetOrCreateSheet("napatia")
-    rowStart = FirstFreeRow(ws, 1)
-    
-    For i = LBound(BusNames) To UBound(BusNames)
-        ws.Cells(rowStart, 1).Value = iter
-        ws.Cells(rowStart, 2).Value = BusNames(i)
-        ws.Cells(rowStart, 3).Value = Vmag(i)
-        ws.Cells(rowStart, 4).Value = Vang(i) * RAD2DEG
-        rowStart = rowStart + 1
-    Next i
+
+    ReDim outArr(1 To VRow, 1 To 4)
+    For r = 1 To VRow
+        For c = 1 To 4
+            outArr(r, c) = VBuf(r, c)
+        Next c
+    Next r
+
+    ws.Range(ws.Cells(2, 1), ws.Cells(1 + VRow, 4)).Value = outArr
 End Sub
 
-' Logovanie epsilon v jednej iterácii
-Public Sub LogEpsilon(ByVal iter As Long, _
-                      ByVal maxDP As Double, _
-                      ByVal maxDQ As Double, _
-                      ByVal eps As Double)
+' EBuf má 4 stĺpce: iter, maxDP, maxDQ, eps; ERow = počet naplnených riadkov.
+Public Sub FlushEpsilonLog(ByRef EBuf As Variant, ByVal ERow As Long)
+    If ERow < 1 Then Exit Sub
 
     Dim ws As Worksheet
-    Dim R As Long
-    
+    Dim outArr As Variant
+    Dim r As Long, c As Long
+
     Set ws = GetOrCreateSheet("epsilon")
-    R = FirstFreeRow(ws, 1)
-    
-    ws.Cells(R, 1).Value = iter
-    ws.Cells(R, 2).Value = maxDP
-    ws.Cells(R, 3).Value = maxDQ
-    ws.Cells(R, 4).Value = eps
+
+    ReDim outArr(1 To ERow, 1 To 4)
+    For r = 1 To ERow
+        For c = 1 To 4
+            outArr(r, c) = EBuf(r, c)
+        Next c
+    Next r
+
+    ws.Range(ws.Cells(2, 1), ws.Cells(1 + ERow, 4)).Value = outArr
 End Sub
 
 ' Zápis súhrnných výsledkov do listu "index"

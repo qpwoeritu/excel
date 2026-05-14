@@ -1,11 +1,11 @@
 Attribute VB_Name = "modShortCircuit"
 '==========================
 ' Modul: modShortCircuit
-' Posledn· ˙prava: 15.02.2026 15:15 (Bratislava)
+' PoslednÔøΩ ÔøΩprava: 15.02.2026 15:15 (Bratislava)
 '==========================
 Option Explicit
 
-' V˝poËet Ik3 (argumenty poæa s˙ Variant pre stabilitu)
+' VÔøΩpoÔøΩet Ik3 (argumenty poÔøΩa sÔøΩ Variant pre stabilitu)
 Public Sub CalculateShortCircuit( _
     ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBus As Variant, ByRef ToBus As Variant, _
     ByRef R As Variant, ByRef X As Variant, ByRef BranchStatus As Variant, _
@@ -29,7 +29,7 @@ Public Sub CalculateShortCircuit( _
     
     ReDim Ysc(1 To nBuses, 1 To nBuses), Ik_result(1 To nBuses)
     
-    ' Inicializ·cia Ysc (izolovanÈ = 1.0 na diagon·le)
+    ' InicializÔøΩcia Ysc (izolovanÔøΩ = 1.0 na diagonÔøΩle)
     For i = 1 To nBuses
         For J = 1 To nBuses: Ysc(i, J) = CCreate(0, 0): Next J
         If IsBusIsolated(i) Then Ysc(i, i) = CCreate(1, 0)
@@ -47,7 +47,7 @@ Public Sub CalculateShortCircuit( _
         End If
     Next k
     
-    ' Traf·
+    ' TrafÔøΩ
     For k = 1 To nTrafo
         If Not IsTrafoIsolated(k) And Not (TrR(k) = 0 And TrX(k) = 0) Then
             Z = CCreate(CDbl(TrR(k)), CDbl(TrX(k))): Ys = CDiv(CCreate(1, 0), Z)
@@ -59,7 +59,7 @@ Public Sub CalculateShortCircuit( _
         End If
     Next k
     
-        ' SpÌnaËe
+        ' SpÔøΩnaÔøΩe
     For k = 1 To nSwitches
         If SwStatus(k) > 0 Then
             If Not IsSwitchIsolated(k) And Not (SwR(k) = 0 And SwX(k) = 0) Then
@@ -91,17 +91,17 @@ Public Sub CalculateShortCircuit( _
         End If
     Next k
     
-    ' Motory VN - prÌspevok do skratu
-    ' Model: impedancia voËi zemi Z = j*Xk (R sa zanedb·va alebo je v Xk zahrnutÈ ako impedancia)
+    ' Motory VN - prÔøΩspevok do skratu
+    ' Model: impedancia voÔøΩi zemi Z = j*Xk (R sa zanedbÔøΩva alebo je v Xk zahrnutÔøΩ ako impedancia)
     ' Y = 1 / (j*Xk) = -j / Xk
     For k = 1 To nMotors
         If MotorStatus(k) = 1 Then
-            ' Kontrola na nenulov˙ reaktanciu
+            ' Kontrola na nenulovÔøΩ reaktanciu
             If Abs(CDbl(MotorXk(k))) > 0.0000001 Then
                 ' Ys = 1 / (j * Xk) = -j * (1/Xk)
                 Ys = CCreate(0, -1# / CDbl(MotorXk(k)))
                 i = MotorBus(k)
-                ' Pridanie k diagon·le
+                ' Pridanie k diagonÔøΩle
                 Ysc(i, i) = CAdd(Ysc(i, i), Ys)
             End If
         End If
@@ -120,7 +120,7 @@ Public Sub CalculateShortCircuit( _
         End If
     Next i
     
-    ' Debug v˝pis skratovej matice
+    ' Debug vÔøΩpis skratovej matice
     Call WriteSCMatrix(Ysc, BusNames)
     
     ' Inverzia (Double matica pre Excel MInverse)
@@ -133,10 +133,10 @@ Public Sub CalculateShortCircuit( _
     Next i
     
     On Error GoTo 0
-    ' Pouûitie vlastnej funkcie na inverziu matice (namiesto excelovskÈho MInverse)
+    ' PouÔøΩitie vlastnej funkcie na inverziu matice (namiesto excelovskÔøΩho MInverse)
     Call MatrixInverse_Gauss(MatBig, InvBig)
     
-    ' V˝poËet Ik
+    ' VÔøΩpoÔøΩet Ik
     For i = 1 To nBuses
         If IsBusIsolated(i) Then
             Ik_result(i) = 0
@@ -162,7 +162,7 @@ Public Sub WriteShortCircuitResults(ByRef Ik_result As Variant, ByVal nBuses As 
     Next i
 End Sub
 
-' Z·pis skratovej admitanËnej matice pre kontrolu
+' ZÔøΩpis skratovej admitanÔøΩnej matice pre kontrolu
 Private Sub WriteSCMatrix(ByRef Ysc() As Complex, ByRef BusNames As Variant)
     Dim ws As Worksheet
     Dim n As Long
@@ -174,57 +174,49 @@ Private Sub WriteSCMatrix(ByRef Ysc() As Complex, ByRef BusNames As Variant)
     ws.Cells.Clear
     
     n = UBound(Ysc, 1)
-    
+
     row0 = 1
     col0 = 1
-    
-    ' hlaviËky stÂpcov
-    For J = 1 To n
-        ws.Cells(row0, col0 + J).Value = BusNames(J)
-    Next J
-    
-    ' hlaviËky riadkov + samotn· matica v textovom tvare
-    For i = 1 To n
-        ws.Cells(row0 + i, col0).Value = BusNames(i)
-        For J = 1 To n
-            txt = Format(Ysc(i, J).Re, "0.000000") & IIf(Ysc(i, J).Im >= 0, "+j" & Format(Ysc(i, J).Im, "0.000000"), "-j" & Format(Abs(Ysc(i, J).Im), "0.000000"))
-            ws.Cells(row0 + i, col0 + J).Value = txt
-        Next J
-    Next i
-    
-    ' Re·lna Ëasù
-    Dim startRowR As Long
-    startRowR = row0 + n + 2
-    ws.Cells(startRowR, col0).Value = "Re(Ysc)"
-    For J = 1 To n
-        ws.Cells(startRowR + 1, col0 + J).Value = BusNames(J)
-    Next J
-    For i = 1 To n
-        ws.Cells(startRowR + 1 + i, col0).Value = BusNames(i)
-        For J = 1 To n
-            ws.Cells(startRowR + 1 + i, col0 + J).Value = Ysc(i, J).Re
-        Next J
-    Next i
-    
-    ' Imagin·rna Ëasù
+
+    Dim arr As Variant
     Dim startRowX As Long
-    startRowX = startRowR + n + 4
-    ws.Cells(startRowX, col0).Value = "Im(Ysc)"
+
+    ' Blok Re(Ysc) - hlaviÔøΩka + matica v jednom Variant poli, jeden Range.Value zÔøΩpis
+    ws.Cells(row0, col0).Value = "Re(Ysc)"
+    ReDim arr(1 To n + 1, 1 To n + 1)
+    arr(1, 1) = ""
     For J = 1 To n
-        ws.Cells(startRowX + 1, col0 + J).Value = BusNames(J)
+        arr(1, J + 1) = BusNames(J)
     Next J
     For i = 1 To n
-        ws.Cells(startRowX + 1 + i, col0).Value = BusNames(i)
+        arr(i + 1, 1) = BusNames(i)
         For J = 1 To n
-            ws.Cells(startRowX + 1 + i, col0 + J).Value = Ysc(i, J).Im
+            arr(i + 1, J + 1) = Ysc(i, J).Re
         Next J
     Next i
+    ws.Range(ws.Cells(row0 + 1, col0), ws.Cells(row0 + 1 + n, col0 + n)).Value = arr
+
+    ' Blok Im(Ysc)
+    startRowX = row0 + n + 3
+    ws.Cells(startRowX, col0).Value = "Im(Ysc)"
+    ReDim arr(1 To n + 1, 1 To n + 1)
+    arr(1, 1) = ""
+    For J = 1 To n
+        arr(1, J + 1) = BusNames(J)
+    Next J
+    For i = 1 To n
+        arr(i + 1, 1) = BusNames(i)
+        For J = 1 To n
+            arr(i + 1, J + 1) = Ysc(i, J).Im
+        Next J
+    Next i
+    ws.Range(ws.Cells(startRowX + 1, col0), ws.Cells(startRowX + 1 + n, col0 + n)).Value = arr
 End Sub
 
 
 
 '--------------------------------------
-' V˝poËet inverznej matice pomocou Gaussovej elimin·cie
+' VÔøΩpoÔøΩet inverznej matice pomocou Gaussovej eliminÔøΩcie
 '--------------------------------------
 Private Sub MatrixInverse_Gauss(ByRef A_in() As Double, ByRef A_inv() As Double)
     Dim n As Long, i As Long, J As Long, k As Long
@@ -235,7 +227,7 @@ Private Sub MatrixInverse_Gauss(ByRef A_in() As Double, ByRef A_inv() As Double)
     n = UBound(A_in, 1)
     ReDim A(1 To n, 1 To 2 * n)
     
-    ' PrÌprava matice (A | I)
+    ' PrÔøΩprava matice (A | I)
     For i = 1 To n
         For J = 1 To n
             A(i, J) = A_in(i, J)
@@ -243,7 +235,7 @@ Private Sub MatrixInverse_Gauss(ByRef A_in() As Double, ByRef A_inv() As Double)
         Next J
     Next i
     
-    ' Gaussova elimin·cia
+    ' Gaussova eliminÔøΩcia
     For i = 1 To n
         maxRow = i
         maxValue = Abs(A(i, i))
@@ -260,7 +252,7 @@ Private Sub MatrixInverse_Gauss(ByRef A_in() As Double, ByRef A_inv() As Double)
             Next k
         End If
         
-        If Abs(A(i, i)) < 1E-18 Then Err.Raise vbObjectError + 102, , "Matica je singul·rna."
+        If Abs(A(i, i)) < 1E-18 Then Err.Raise vbObjectError + 102, , "Matica je singulÔøΩrna."
         
         temp = A(i, i)
         For k = 1 To 2 * n: A(i, k) = A(i, k) / temp: Next k

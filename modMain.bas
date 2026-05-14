@@ -2,8 +2,23 @@ Option Explicit
 
 ' Tlačidlo na tvorbu Y-matice
 Public Sub CmdBuildYMatrix()
+    Dim prevCalc As XlCalculation
+    Dim prevScreen As Boolean, prevEvents As Boolean
+
+    prevCalc = Application.Calculation
+    prevScreen = Application.ScreenUpdating
+    prevEvents = Application.EnableEvents
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.Calculation = xlCalculationManual
+    Application.DisplayStatusBar = False
+    On Error Resume Next
+    ActiveSheet.DisplayPageBreaks = False
+    On Error GoTo 0
+
     On Error GoTo ErrHandler
-    
+
     Dim nBuses As Long, nBranches As Long
     Dim BusNames() As String
     Dim BusBaseKV() As Double
@@ -117,10 +132,16 @@ Public Sub CmdBuildYMatrix()
                    Y, G, B)
     
     MsgBox "Admitančná matica bola vytvorená.", vbInformation
-    Exit Sub
+    GoTo Cleanup
 
 ErrHandler:
     MsgBox "Chyba pri tvorbe Y-matice: " & Err.Description, vbCritical
+
+Cleanup:
+    Application.ScreenUpdating = prevScreen
+    Application.EnableEvents = prevEvents
+    Application.Calculation = prevCalc
+    Application.DisplayStatusBar = True
 End Sub
 
 
@@ -131,8 +152,23 @@ End Sub
 
 ' Tlačidlo na výpočet skratových prúdov
 Public Sub CmdCalculateShortCircuit()
+    Dim prevCalc As XlCalculation
+    Dim prevScreen As Boolean, prevEvents As Boolean
+
+    prevCalc = Application.Calculation
+    prevScreen = Application.ScreenUpdating
+    prevEvents = Application.EnableEvents
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.Calculation = xlCalculationManual
+    Application.DisplayStatusBar = False
+    On Error Resume Next
+    ActiveSheet.DisplayPageBreaks = False
+    On Error GoTo 0
+
     On Error GoTo ErrHandler
-    
+
     Dim nBuses As Long, nBranches As Long
     Dim BusNames() As String
     Dim BusBaseKV() As Double
@@ -262,10 +298,16 @@ Public Sub CmdCalculateShortCircuit()
     Call UpdateSLD
     
     MsgBox "Výpočet skratov ukončený.", vbInformation
-    Exit Sub
+    GoTo Cleanup
 
 ErrHandler:
     MsgBox "Chyba pri výpočte skratov: " & Err.Description, vbCritical
+
+Cleanup:
+    Application.ScreenUpdating = prevScreen
+    Application.EnableEvents = prevEvents
+    Application.Calculation = prevCalc
+    Application.DisplayStatusBar = True
 End Sub
 
 ' Makro pre VBS – kompletný beh: Y-matica + NR
