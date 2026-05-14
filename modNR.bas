@@ -536,6 +536,14 @@ Public Sub NewtonRaphsonLoadFlow()
     '--------------------------
     Call ClearResultsSheets
 
+    ' Bufre pre log napätí a epsilon (flushneme jedným Range.Value zápisom po slučke)
+    Dim VBuf As Variant, EBuf As Variant
+    Dim VRow As Long, ERow As Long
+    Dim bIdx As Long
+    ReDim VBuf(1 To maxIter * nBuses, 1 To 4)
+    ReDim EBuf(1 To maxIter, 1 To 4)
+    VRow = 0: ERow = 0
+
     startTime = Timer
     converged = False
     iterUsed = 0
@@ -553,9 +561,19 @@ Public Sub NewtonRaphsonLoadFlow()
             ' vektor nesúladu a epsilon (upravený pre PV)
             Call BuildMismatchVectors(nBuses, BusTypes, Pspec, Qspec, Vmag, Pcalc, Qcalc, PQIndex, nPQ, mismatch, maxDP, maxDQ, eps, BusBaseKV)
 
-            ' logovanie napätí a epsilon
-            Call LogVoltages(iter, BusNames, Vmag, Vang)
-            Call LogEpsilon(iter, maxDP, maxDQ, eps)
+            ' logovanie napätí a epsilon do bufrov (flush po slučke)
+            For bIdx = 1 To nBuses
+                VRow = VRow + 1
+                VBuf(VRow, 1) = iter
+                VBuf(VRow, 2) = BusNames(bIdx)
+                VBuf(VRow, 3) = Vmag(bIdx)
+                VBuf(VRow, 4) = Vang(bIdx) * RAD2DEG
+            Next bIdx
+            ERow = ERow + 1
+            EBuf(ERow, 1) = iter
+            EBuf(ERow, 2) = maxDP
+            EBuf(ERow, 3) = maxDQ
+            EBuf(ERow, 4) = eps
 
             ' kontrola konvergencie
             If eps < epsLimit Then
@@ -575,6 +593,10 @@ Public Sub NewtonRaphsonLoadFlow()
     Else
         converged = True
     End If
+
+    ' Flush log bufrov (jeden Range.Value zápis na list)
+    Call FlushVoltageLog(VBuf, VRow)
+    Call FlushEpsilonLog(EBuf, ERow)
 
 SkipNR:
     totalTime = Timer - startTime
