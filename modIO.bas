@@ -17,7 +17,8 @@ Public Sub LoadBusData( _
     ByRef Qspec() As Double, _
     ByRef BusBaseKV() As Double, _
     ByVal SBase_MVA As Double, _
-    ByRef VLevels() As Double)
+    ByRef VLevels() As Double, _
+    ByRef busDict As Object)
 
     Dim ws As Worksheet
     Dim lastRow As Long
@@ -25,18 +26,19 @@ Public Sub LoadBusData( _
     Dim t As String
     Dim V_kV As Double, P_MW As Double, Q_mvar As Double
     Dim busBase As Double
-    
+    Dim data As Variant
+
     Set ws = ThisWorkbook.Worksheets("uzly")
-    
+
     ' posledný riadok podľa stĺpca B (Názov uzla)
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     If lastRow < 3 Then
         Err.Raise vbObjectError + 1, , "V liste 'uzly' nie sú žiadne uzly (očakávam dáta od riadku 3)."
     End If
-    
+
     ' prvé dáta sú v riadku 3 => počet uzlov
     nBuses = lastRow - 2
-    
+
     ReDim BusNames(1 To nBuses)
     ReDim BusTypes(1 To nBuses)
     ReDim Vmag(1 To nBuses)
@@ -44,12 +46,14 @@ Public Sub LoadBusData( _
     ReDim Pspec(1 To nBuses)
     ReDim Qspec(1 To nBuses)
     ReDim BusBaseKV(1 To nBuses)
-    
+
+    ' bulk read B..G (1 COM call) - stĺpce v poli: 1=B(meno), 2=C(typ), 3=D(V_kV), 5=F(P), 6=G(Q)
+    data = ws.Range(ws.Cells(3, 2), ws.Cells(lastRow, 7)).Value
+
     For i = 1 To nBuses
-        ' riadok s dátami = 2 + i (3,4,...)
-        BusNames(i) = CStr(ws.Cells(2 + i, 2).Value)   ' B: Názov uzla
-        
-        t = CStr(ws.Cells(2 + i, 3).Value)             ' C: Typ
+        BusNames(i) = CStr(data(i, 1))                      ' B: Názov uzla
+
+        t = CStr(data(i, 2))                                ' C: Typ
         Select Case UCase$(Trim$(t))
             Case "SLACK"
                 BusTypes(i) = btSlack
@@ -60,24 +64,24 @@ Public Sub LoadBusData( _
             Case Else
                 BusTypes(i) = btPQ
         End Select
-        
+
         ' načítanie skutočných hodnôt
-        V_kV = ParseDouble(ws.Cells(2 + i, 4).Value)   ' D: |V| [kV]
-        P_MW = ParseDouble(ws.Cells(2 + i, 6).Value)   ' F: P [MW]
-        Q_mvar = ParseDouble(ws.Cells(2 + i, 7).Value) ' G: Q [Mvar]
-        
+        V_kV = ParseDouble(data(i, 3))                      ' D: |V| [kV]
+        P_MW = ParseDouble(data(i, 5))                      ' F: P [MW]
+        Q_mvar = ParseDouble(data(i, 6))                    ' G: Q [Mvar]
+
         ' Určenie bázy pre uzol - najbližšia hladina z data!K3:K8 (tvrdá kontrola pri >25 %)
         busBase = GetBaseVoltageForBus(V_kV, VLevels, BusNames(i))
         BusBaseKV(i) = busBase
 
         ' prvý odhad napätia v p.u. (rovnako pre Slack, PV aj PQ)
         Vmag(i) = V_kV / busBase
-        
+
         ' Pôvodne načítanie uhla zo stĺpca E:
         ' Vang(i) = ParseDouble(ws.Cells(2 + i, 5).Value) * DEG2RAD
         ' Zmena (27.12.2025): Uhol pre prvý krok je vždy 0
         Vang(i) = 0#
-        
+
         If SBase_MVA <> 0# Then
             Pspec(i) = P_MW / SBase_MVA
             Qspec(i) = Q_mvar / SBase_MVA
@@ -86,6 +90,9 @@ Public Sub LoadBusData( _
             Qspec(i) = 0#
         End If
     Next i
+
+    ' Postavíme dict raz, používa sa vo všetkých Load*Data subsekvenciách (O(1) lookup)
+    Set busDict = BuildBusIndexDict(BusNames)
 End Sub
 
 ' Načítanie dát transformátorov z listu "transformatory"
@@ -103,7 +110,8 @@ Public Sub LoadTransformerData( _
     ByRef TrRatio() As Double, _
     ByRef BusNames() As String, _
     ByRef BusBaseKV() As Double, _
-    ByVal SBase_MVA As Double)
+    ByVal SBase_MVA As Double, _
+    ByRef busDict As Object)
 
     Dim ws As Worksheet
     Dim lastRow As Long
@@ -115,17 +123,19 @@ Public Sub LoadTransformerData( _
     Dim G_siemens As Double, B_siemens As Double
     Dim Ubase1 As Double
     Dim colOffset As Long
-    
+    Dim data As Variant
+    Dim lastCol As Long
+
     Set ws = ThisWorkbook.Worksheets("transformatory")
-    
+
     lastRow = ws.Cells(ws.Rows.Count, 3).End(xlUp).Row
     If lastRow < 3 Then
         nTrafo = 0
         Exit Sub
     End If
-    
+
     nTrafo = lastRow - 2
-    
+
     ReDim TrFrom(1 To nTrafo)
     ReDim TrTo(1 To nTrafo)
     ReDim TrR(1 To nTrafo)
@@ -133,43 +143,47 @@ Public Sub LoadTransformerData( _
     ReDim TrG(1 To nTrafo)
     ReDim TrB(1 To nTrafo)
     ReDim TrRatio(1 To nTrafo)
-    
+
     ' Detekcia posunu stĺpcov:
     If InStr(1, LCase(CStr(ws.Cells(2, 18).Value)), "zk") > 0 Then
         colOffset = 1
     Else
         colOffset = 0
     End If
-    
+
+    ' bulk read C..(22+colOffset) - stĺpce v poli: 1=C(from), 2=D(to), 16+co=R, 17+co=X, 18+co=G, 19+co=B, 20+co=ratio
+    lastCol = 22 + colOffset
+    data = ws.Range(ws.Cells(3, 3), ws.Cells(lastRow, lastCol)).Value
+
     For i = 1 To nTrafo
-        fromName = CStr(ws.Cells(i + 2, 3).Value) ' C: Uzol od
-        toName = CStr(ws.Cells(i + 2, 4).Value)   ' D: Uzol do
-        
-        idxFrom = GetBusIndex(fromName, BusNames)
+        fromName = CStr(data(i, 1))                         ' C: Uzol od
+        toName = CStr(data(i, 2))                           ' D: Uzol do
+
+        idxFrom = GetBusIndexD(fromName, busDict)
         If idxFrom = 0 Then
             Err.Raise vbObjectError + 4, , "Uzol '" & fromName & "' v liste 'transformatory', riadok " & (i + 2) & " neexistuje."
         End If
         TrFrom(i) = idxFrom
-        
-        idxTo = GetBusIndex(toName, BusNames)
+
+        idxTo = GetBusIndexD(toName, busDict)
         If idxTo = 0 Then
             Err.Raise vbObjectError + 5, , "Uzol '" & toName & "' v liste 'transformatory', riadok " & (i + 2) & " neexistuje."
         End If
         TrTo(i) = idxTo
-        
+
         ' Báza impedancie na strane primáru (uzol od)
         Ubase1 = BusBaseKV(idxFrom)
-        
+
         If SBase_MVA <> 0# Then
             Zbase_prim = (Ubase1 * Ubase1) / SBase_MVA
         Else
             Zbase_prim = 1#
         End If
-        
-        ' R, X v Ohmoch -> p.u.
-        R_ohm = ParseDouble(ws.Cells(i + 2, 18 + colOffset).Value)
-        X_ohm = ParseDouble(ws.Cells(i + 2, 19 + colOffset).Value)
-        
+
+        ' R, X v Ohmoch -> p.u.   (col 18+co = pole-col 16+co, col 19+co = 17+co)
+        R_ohm = ParseDouble(data(i, 16 + colOffset))
+        X_ohm = ParseDouble(data(i, 17 + colOffset))
+
         If Zbase_prim <> 0# Then
             TrR(i) = R_ohm / Zbase_prim
             TrX(i) = X_ohm / Zbase_prim
@@ -177,16 +191,16 @@ Public Sub LoadTransformerData( _
             TrR(i) = 0#
             TrX(i) = 0#
         End If
-        
+
         ' G, B v Siemensoch -> p.u.
-        G_siemens = ParseDouble(ws.Cells(i + 2, 20 + colOffset).Value)
-        B_siemens = ParseDouble(ws.Cells(i + 2, 21 + colOffset).Value)
-        
+        G_siemens = ParseDouble(data(i, 18 + colOffset))
+        B_siemens = ParseDouble(data(i, 19 + colOffset))
+
         TrG(i) = G_siemens * Zbase_prim
         TrB(i) = B_siemens * Zbase_prim
-        
+
         ' Prevod a
-        TrRatio(i) = ParseDouble(ws.Cells(i + 2, 22 + colOffset).Value)
+        TrRatio(i) = ParseDouble(data(i, 20 + colOffset))
         If TrRatio(i) <= 0# Then TrRatio(i) = 1#
     Next i
 End Sub
@@ -202,7 +216,8 @@ Public Sub LoadReactorData( _
     ByRef ReaktorX() As Double, _
     ByRef BusNames() As String, _
     ByRef BusBaseKV() As Double, _
-    ByVal SBase_MVA As Double)
+    ByVal SBase_MVA As Double, _
+    ByRef busDict As Object)
 
     Dim ws As Worksheet
     Dim lastRow As Long
@@ -212,40 +227,44 @@ Public Sub LoadReactorData( _
     Dim Zbase As Double
     Dim R_ohm As Double, X_ohm As Double
     Dim Ubase As Double
-    
+    Dim data As Variant
+
     Set ws = GetOrCreateSheet("reaktory")
-    
+
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     If lastRow < 4 Then
         nReaktory = 0
         Exit Sub
     End If
-    
+
     nReaktory = lastRow - 3
-    
+
     ReDim ReaktorName(1 To nReaktory)
     ReDim ReaktorFrom(1 To nReaktory)
     ReDim ReaktorTo(1 To nReaktory)
     ReDim ReaktorR(1 To nReaktory)
     ReDim ReaktorX(1 To nReaktory)
-    
+
+    ' bulk read B..I (1=B name, 2=C from, 3=D to, 7=H R, 8=I X)
+    data = ws.Range(ws.Cells(4, 2), ws.Cells(lastRow, 9)).Value
+
     For i = 1 To nReaktory
-        ReaktorName(i) = CStr(ws.Cells(i + 3, 2).Value) ' B
-        fromName = CStr(ws.Cells(i + 3, 3).Value)       ' C
-        toName = CStr(ws.Cells(i + 3, 4).Value)         ' D
-        
-        idxFrom = GetBusIndex(fromName, BusNames)
+        ReaktorName(i) = CStr(data(i, 1))                   ' B
+        fromName = CStr(data(i, 2))                         ' C
+        toName = CStr(data(i, 3))                           ' D
+
+        idxFrom = GetBusIndexD(fromName, busDict)
         If idxFrom = 0 Then
             Err.Raise vbObjectError + 6, , "Uzol '" & fromName & "' v liste 'reaktory', riadok " & (i + 3) & " neexistuje."
         End If
         ReaktorFrom(i) = idxFrom
-        
-        idxTo = GetBusIndex(toName, BusNames)
+
+        idxTo = GetBusIndexD(toName, busDict)
         If idxTo = 0 Then
             Err.Raise vbObjectError + 7, , "Uzol '" & toName & "' v liste 'reaktory', riadok " & (i + 3) & " neexistuje."
         End If
         ReaktorTo(i) = idxTo
-        
+
         ' Impedančná báza podľa uzla "od"
         Ubase = BusBaseKV(idxFrom)
         If SBase_MVA <> 0# Then
@@ -253,10 +272,10 @@ Public Sub LoadReactorData( _
         Else
             Zbase = 1#
         End If
-        
-        R_ohm = ParseDouble(ws.Cells(i + 3, 8).Value) ' H (8)
-        X_ohm = ParseDouble(ws.Cells(i + 3, 9).Value) ' I (9)
-        
+
+        R_ohm = ParseDouble(data(i, 7))                     ' H (8) -> col 7 v poli
+        X_ohm = ParseDouble(data(i, 8))                     ' I (9) -> col 8
+
         If Zbase <> 0# Then
             ReaktorR(i) = R_ohm / Zbase
             ReaktorX(i) = X_ohm / Zbase
@@ -279,7 +298,8 @@ Public Sub LoadDifReactorData( _
     ByRef DifReaktorX() As Double, _
     ByRef BusNames() As String, _
     ByRef BusBaseKV() As Double, _
-    ByVal SBase_MVA As Double)
+    ByVal SBase_MVA As Double, _
+    ByRef busDict As Object)
 
     Dim ws As Worksheet
     Dim lastRow As Long
@@ -289,41 +309,45 @@ Public Sub LoadDifReactorData( _
     Dim Zbase As Double
     Dim R_ohm As Double, X_ohm As Double
     Dim Ubase As Double
-    
+    Dim data As Variant
+
     Set ws = GetOrCreateSheet("dif_reaktory")
-    
+
     lastRow = ws.Cells(ws.Rows.Count, 3).End(xlUp).Row
     If lastRow < 4 Then
         nDifReaktory = 0
         Exit Sub
     End If
-    
+
     nDifReaktory = lastRow - 3
-    
+
     ReDim DifReaktorName(1 To nDifReaktory)
     ReDim DifReaktorFrom(1 To nDifReaktory)
     ReDim DifReaktorTo(1 To nDifReaktory)
     ReDim DifReaktorR(1 To nDifReaktory)
     ReDim DifReaktorX(1 To nDifReaktory)
-    
+
+    ' bulk read C..J (1=C from, 2=D to, 7=I R, 8=J X)
+    data = ws.Range(ws.Cells(4, 3), ws.Cells(lastRow, 10)).Value
+
     For i = 1 To nDifReaktory
         ' Name nie je v špecifikácii, ale pole existuje. Dáme tam "DR" + index alebo prázdny string?
         DifReaktorName(i) = "DR" & i
-        fromName = CStr(ws.Cells(i + 3, 3).Value)       ' C
-        toName = CStr(ws.Cells(i + 3, 4).Value)         ' D
-        
-        idxFrom = GetBusIndex(fromName, BusNames)
+        fromName = CStr(data(i, 1))                         ' C
+        toName = CStr(data(i, 2))                           ' D
+
+        idxFrom = GetBusIndexD(fromName, busDict)
         If idxFrom = 0 Then
             Err.Raise vbObjectError + 8, , "Uzol '" & fromName & "' v liste 'dif_reaktory', riadok " & (i + 3) & " neexistuje."
         End If
         DifReaktorFrom(i) = idxFrom
-        
-        idxTo = GetBusIndex(toName, BusNames)
+
+        idxTo = GetBusIndexD(toName, busDict)
         If idxTo = 0 Then
             Err.Raise vbObjectError + 9, , "Uzol '" & toName & "' v liste 'dif_reaktory', riadok " & (i + 3) & " neexistuje."
         End If
         DifReaktorTo(i) = idxTo
-        
+
         ' Impedančná báza podľa uzla "od"
         Ubase = BusBaseKV(idxFrom)
         If SBase_MVA <> 0# Then
@@ -331,10 +355,10 @@ Public Sub LoadDifReactorData( _
         Else
             Zbase = 1#
         End If
-        
-        R_ohm = ParseDouble(ws.Cells(i + 3, 9).Value)  ' I (9)
-        X_ohm = ParseDouble(ws.Cells(i + 3, 10).Value) ' J (10)
-        
+
+        R_ohm = ParseDouble(data(i, 7))                     ' I (9) -> col 7 v poli
+        X_ohm = ParseDouble(data(i, 8))                     ' J (10) -> col 8
+
         If Zbase <> 0# Then
             DifReaktorR(i) = R_ohm / Zbase
             DifReaktorX(i) = X_ohm / Zbase
@@ -356,7 +380,8 @@ Public Sub LoadCompData( _
     ByRef CompStatus() As Integer, _
     ByRef BusNames() As String, _
     ByRef BusBaseKV() As Double, _
-    ByVal SBase_MVA As Double)
+    ByVal SBase_MVA As Double, _
+    ByRef busDict As Object)
 
     Dim ws As Worksheet
     Dim lastRow As Long
@@ -366,40 +391,44 @@ Public Sub LoadCompData( _
     Dim Zbase As Double, Ubase As Double
     Dim BL_pu As Double, BC_pu As Double
     Dim statusVal As Variant
-    
+    Dim data As Variant
+
     Set ws = GetOrCreateSheet("kompenzácia")
-    
+
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     If lastRow < 4 Then
         nComp = 0
         Exit Sub
     End If
-    
+
     nComp = lastRow - 3
-    
+
     ReDim CompName(1 To nComp)
     ReDim CompBus(1 To nComp)
     ReDim CompB(1 To nComp)
     ReDim CompStatus(1 To nComp)
-    
+
+    ' bulk read B..Q (1=B name, 2=C bus, 13=N status, 15=P XL, 16=Q XC)
+    data = ws.Range(ws.Cells(4, 2), ws.Cells(lastRow, 17)).Value
+
     For i = 1 To nComp
-        CompName(i) = CStr(ws.Cells(i + 3, 2).Value) ' B
-        busName = CStr(ws.Cells(i + 3, 3).Value)     ' C
-        
-        idxBus = GetBusIndex(busName, BusNames)
+        CompName(i) = CStr(data(i, 1))                      ' B
+        busName = CStr(data(i, 2))                          ' C
+
+        idxBus = GetBusIndexD(busName, busDict)
         If idxBus = 0 Then
             Err.Raise vbObjectError + 10, , "Uzol '" & busName & "' v liste 'kompenzácia', riadok " & (i + 3) & " neexistuje."
         End If
         CompBus(i) = idxBus
-        
-        ' Status N (14)
-        statusVal = ws.Cells(i + 3, 14).Value
+
+        ' Status N (14) -> col 13 v poli
+        statusVal = data(i, 13)
         If IsNumeric(statusVal) Then
             CompStatus(i) = CInt(statusVal)
         Else
             CompStatus(i) = 0
         End If
-        
+
         ' Ak nie je aktívna (Status=0), susceptancia je 0
         If CompStatus(i) = 1 Then
             Ubase = BusBaseKV(idxBus)
@@ -408,9 +437,9 @@ Public Sub LoadCompData( _
             Else
                 Zbase = 1#
             End If
-            
-            XL_ohm = ParseDouble(ws.Cells(i + 3, 16).Value) ' P (16)
-            XC_ohm = ParseDouble(ws.Cells(i + 3, 17).Value) ' Q (17)
+
+            XL_ohm = ParseDouble(data(i, 15))               ' P (16) -> col 15
+            XC_ohm = ParseDouble(data(i, 16))               ' Q (17) -> col 16
             
             ' Sériová kombinácia / Výsledná reaktancia:
             ' Užívateľ požaduje 1/(XC - XL)
@@ -448,7 +477,8 @@ Public Sub LoadGeneratorData( _
     ByRef GenXd() As Double, _
     ByRef BusNames() As String, _
     ByRef BusBaseKV() As Double, _
-    ByVal SBase_MVA As Double)
+    ByVal SBase_MVA As Double, _
+    ByRef busDict As Object)
 
     Dim ws As Worksheet
     Dim lastRow As Long
@@ -457,17 +487,18 @@ Public Sub LoadGeneratorData( _
     Dim idxPQ As Long, idxPV As Long
     Dim Ubase As Double, Zbase As Double
     Dim stVal As Variant
-    
+    Dim data As Variant
+
     Set ws = GetOrCreateSheet("generatory")
-    
+
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     If lastRow < 3 Then
         nGens = 0
         Exit Sub
     End If
-    
+
     nGens = lastRow - 2
-    
+
     ReDim GenName(1 To nGens)
     ReDim GenBusPQ(1 To nGens)
     ReDim GenBusPV(1 To nGens)
@@ -476,52 +507,54 @@ Public Sub LoadGeneratorData( _
     ReDim GenP(1 To nGens)
     ReDim GenXs(1 To nGens)
     ReDim GenXd(1 To nGens)
-    
+
+    ' bulk read B..P (1=B name, 2=C pq, 3=D pv, 4=E status, 11=L Ra, 12=M P, 14=O Xs, 15=P Xd'')
+    data = ws.Range(ws.Cells(3, 2), ws.Cells(lastRow, 16)).Value
+
     For i = 1 To nGens
-        GenName(i) = CStr(ws.Cells(i + 2, 2).Value) ' B
-        pqName = CStr(ws.Cells(i + 2, 3).Value)     ' C
-        pvName = CStr(ws.Cells(i + 2, 4).Value)     ' D
-        
-        ' Status E (5)
-        stVal = ws.Cells(i + 2, 5).Value
+        GenName(i) = CStr(data(i, 1))                       ' B
+        pqName = CStr(data(i, 2))                           ' C
+        pvName = CStr(data(i, 3))                           ' D
+
+        ' Status E (5) -> col 4
+        stVal = data(i, 4)
         If IsNumeric(stVal) Then
             GenStatus(i) = CInt(stVal)
         Else
             GenStatus(i) = 0
         End If
-        
-        idxPQ = GetBusIndex(pqName, BusNames)
+
+        idxPQ = GetBusIndexD(pqName, busDict)
         If idxPQ = 0 Then
             Err.Raise vbObjectError + 12, , "PQ Uzol '" & pqName & "' v liste 'generatory' neexistuje."
         End If
         GenBusPQ(i) = idxPQ
-        
-        idxPV = GetBusIndex(pvName, BusNames)
+
+        idxPV = GetBusIndexD(pvName, busDict)
         If idxPV = 0 Then
             Err.Raise vbObjectError + 13, , "PV Uzol '" & pvName & "' v liste 'generatory' neexistuje."
         End If
         GenBusPV(i) = idxPV
-        
-        ' P_gen [MW] -> M (13)
+
+        ' P_gen [MW] -> M (13) -> col 12
         If SBase_MVA <> 0 Then
-            GenP(i) = ParseDouble(ws.Cells(i + 2, 13).Value) / SBase_MVA
+            GenP(i) = ParseDouble(data(i, 12)) / SBase_MVA
         Else
             GenP(i) = 0
         End If
-        
-        ' Ra [ohm] -> L (12), Xs [ohm] -> O (15), Xd'' [ohm] -> P (16)
-        ' Báza impedancie (podľa PQ uzla, lebo tam je pripojený)
+
+        ' Ra [ohm] -> L (12) -> col 11, Xs [ohm] -> O (15) -> col 14, Xd'' [ohm] -> P (16) -> col 15
         Ubase = BusBaseKV(idxPQ)
         If SBase_MVA <> 0 Then
             Zbase = (Ubase * Ubase) / SBase_MVA
         Else
             Zbase = 1
         End If
-        
+
         If Zbase <> 0 Then
-            GenRa(i) = ParseDouble(ws.Cells(i + 2, 12).Value) / Zbase
-            GenXs(i) = ParseDouble(ws.Cells(i + 2, 15).Value) / Zbase
-            GenXd(i) = ParseDouble(ws.Cells(i + 2, 16).Value) / Zbase
+            GenRa(i) = ParseDouble(data(i, 11)) / Zbase
+            GenXs(i) = ParseDouble(data(i, 14)) / Zbase
+            GenXd(i) = ParseDouble(data(i, 15)) / Zbase
         End If
     Next i
 End Sub
@@ -595,7 +628,8 @@ Public Sub LoadMotorData( _
     ByRef MotorStatus() As Integer, _
     ByRef BusNames() As String, _
     ByRef BusBaseKV() As Double, _
-    ByVal SBase_MVA As Double)
+    ByVal SBase_MVA As Double, _
+    ByRef busDict As Object)
 
     Dim ws As Worksheet
     Dim lastRow As Long
@@ -605,17 +639,18 @@ Public Sub LoadMotorData( _
     Dim R_ohm As Double, Xk_ohm As Double
     Dim G_siemens As Double, B_siemens As Double
     Dim statusVal As Variant
-    
+    Dim data As Variant
+
     Set ws = GetOrCreateSheet("motoryVN")
-    
+
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     If lastRow < 3 Then
         nMotors = 0
         Exit Sub
     End If
-    
+
     nMotors = lastRow - 2
-    
+
     ReDim MotorName(1 To nMotors)
     ReDim MotorBus(1 To nMotors)
     ReDim MotorR(1 To nMotors)
@@ -623,29 +658,31 @@ Public Sub LoadMotorData( _
     ReDim MotorG(1 To nMotors)
     ReDim MotorB(1 To nMotors)
     ReDim MotorStatus(1 To nMotors)
-    
+
+    ' bulk read B..S (1=B name, 2=C bus, 11=L R, 15=P Xk, 16=Q G, 17=R B, 18=S status)
+    data = ws.Range(ws.Cells(3, 2), ws.Cells(lastRow, 19)).Value
+
     For i = 1 To nMotors
-        MotorName(i) = CStr(ws.Cells(i + 2, 2).Value) ' B
-        busName = CStr(ws.Cells(i + 2, 3).Value)      ' C
-        
-        idxBus = GetBusIndex(busName, BusNames)
+        MotorName(i) = CStr(data(i, 1))                     ' B
+        busName = CStr(data(i, 2))                          ' C
+
+        idxBus = GetBusIndexD(busName, busDict)
         If idxBus = 0 Then
             Err.Raise vbObjectError + 11, , "Uzol '" & busName & "' v liste 'motoryVN', riadok " & (i + 2) & " neexistuje."
         End If
         MotorBus(i) = idxBus
-        
-        ' Status S (19)
-        statusVal = ws.Cells(i + 2, 19).Value
+
+        ' Status S (19) -> col 18
+        statusVal = data(i, 18)
         If IsNumeric(statusVal) Then
             MotorStatus(i) = CInt(statusVal)
         Else
             MotorStatus(i) = 0
         End If
-        
-        ' R [ohm] L (12) - iba pre straty, neprepočítavame na p.u. (alebo hej? Vzorec je 3*I^2*R. Ak I je v A a R v Ohm, tak je to OK.)
-        ' Načítame ako Ohmy.
-        MotorR(i) = ParseDouble(ws.Cells(i + 2, 12).Value)
-        
+
+        ' R [ohm] L (12) -> col 11
+        MotorR(i) = ParseDouble(data(i, 11))
+
         ' Báza pre Xk, G, B
         Ubase = BusBaseKV(idxBus)
         If SBase_MVA <> 0# Then
@@ -653,22 +690,22 @@ Public Sub LoadMotorData( _
         Else
             Zbase = 1#
         End If
-        
+
         If MotorStatus(i) = 1 Then
-             ' Xk [ohm] P (16)
-            Xk_ohm = ParseDouble(ws.Cells(i + 2, 16).Value)
+            ' Xk [ohm] P (16) -> col 15
+            Xk_ohm = ParseDouble(data(i, 15))
             If Zbase <> 0# Then
                 MotorXk(i) = Xk_ohm / Zbase
             Else
                 MotorXk(i) = 0#
             End If
-            
-            ' G [S] Q (17)
-            G_siemens = ParseDouble(ws.Cells(i + 2, 17).Value)
+
+            ' G [S] Q (17) -> col 16
+            G_siemens = ParseDouble(data(i, 16))
             MotorG(i) = G_siemens * Zbase
-            
-            ' B [S] R (18)
-            B_siemens = ParseDouble(ws.Cells(i + 2, 18).Value)
+
+            ' B [S] R (18) -> col 17
+            B_siemens = ParseDouble(data(i, 17))
             MotorB(i) = B_siemens * Zbase
         Else
             MotorXk(i) = 0#
@@ -1247,7 +1284,8 @@ Public Sub LoadBranchData( _
     ByRef BusNames() As String, _
     ByRef BusBaseKV() As Double, _
     ByVal SBase_MVA As Double, _
-    ByRef Bshunt() As Double)
+    ByRef Bshunt() As Double, _
+    ByRef busDict As Object)
 
     Dim ws As Worksheet
     Dim lastRow As Long
@@ -1258,17 +1296,19 @@ Public Sub LoadBranchData( _
     Dim R_ohm As Double, X_ohm As Double
     Dim Ubase1 As Double
     Dim stVal As Variant
-    
+    Dim data As Variant
+    Dim B_S As Double
+
     Set ws = ThisWorkbook.Worksheets("vedenia")
-    
+
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     If lastRow < 3 Then
         nBranches = 0
         Exit Sub
     End If
-    
+
     nBranches = lastRow - 2
-    
+
     ReDim BranchName(1 To nBranches)
     ReDim FromBus(1 To nBranches)
     ReDim ToBus(1 To nBranches)
@@ -1276,15 +1316,17 @@ Public Sub LoadBranchData( _
     ReDim X(1 To nBranches)
     ReDim Bshunt(1 To nBranches)
     ReDim BranchStatus(1 To nBranches)
-    
+
+    ' bulk read B..P (1=B name, 2=C from, 3=D to, 4=E status, 13=N R, 14=O X, 15=P B)
+    data = ws.Range(ws.Cells(3, 2), ws.Cells(lastRow, 16)).Value
+
     For i = 1 To nBranches
-        ' Dáta od riadku 3 -> riadok = i + 2
-        BranchName(i) = CStr(ws.Cells(i + 2, 2).Value) ' B: Názov
-        fromName = CStr(ws.Cells(i + 2, 3).Value)      ' C: Uzol od
-        toName = CStr(ws.Cells(i + 2, 4).Value)        ' D: Uzol do
-        
-        ' Načítanie Statusu z E (5)
-        stVal = ws.Cells(i + 2, 5).Value
+        BranchName(i) = CStr(data(i, 1))                    ' B: Názov
+        fromName = CStr(data(i, 2))                         ' C: Uzol od
+        toName = CStr(data(i, 3))                           ' D: Uzol do
+
+        ' Status E (5) -> col 4
+        stVal = data(i, 4)
         If IsEmpty(stVal) Or Trim(CStr(stVal)) = "" Then
             BranchStatus(i) = 1 ' Default ON
         ElseIf IsNumeric(stVal) Then
@@ -1292,34 +1334,34 @@ Public Sub LoadBranchData( _
         Else
             BranchStatus(i) = 0
         End If
-        
-        idx = GetBusIndex(fromName, BusNames)
+
+        idx = GetBusIndexD(fromName, busDict)
         If idx = 0 Then
             Err.Raise vbObjectError + 2, , "Uzol '" & fromName & "' v liste 'vedenia', riadok " & (i + 2) & " neexistuje v liste 'uzly'."
         End If
         FromBus(i) = idx
-        
-        idx = GetBusIndex(toName, BusNames)
+
+        idx = GetBusIndexD(toName, busDict)
         If idx = 0 Then
             Err.Raise vbObjectError + 3, , "Uzol '" & toName & "' v liste 'vedenia', riadok " & (i + 2) & " neexistuje v liste 'uzly'."
         End If
         ToBus(i) = idx
-        
-        ' Určenie Zbase pre vedenie (podľa "from" uzla)
+
+        ' Určenie Zbase pre vedenie (podľa "from" uzla; idx je teraz toName, ale Ubase pôvodne
+        ' brané z posledne nastaveného idx -> bola to logika pôvodného kódu)
         Ubase1 = BusBaseKV(idx)
-        
+
         If SBase_MVA <> 0# Then
             Zbase_ohm = (Ubase1 * Ubase1) / SBase_MVA
         Else
             Zbase_ohm = 1#
         End If
-        
-        ' načítanie skutočnej impedancie - R z N(14), X z O(15), B z P(16)
-        R_ohm = ParseDouble(ws.Cells(i + 2, 14).Value)
-        X_ohm = ParseDouble(ws.Cells(i + 2, 15).Value)
-        Dim B_S As Double
-        B_S = ParseDouble(ws.Cells(i + 2, 16).Value)
-        
+
+        ' načítanie skutočnej impedancie - R z N(14)->col 13, X z O(15)->14, B z P(16)->15
+        R_ohm = ParseDouble(data(i, 13))
+        X_ohm = ParseDouble(data(i, 14))
+        B_S = ParseDouble(data(i, 15))
+
         ' prepočet do p.u.
         If Zbase_ohm <> 0# Then
             R(i) = R_ohm / Zbase_ohm
@@ -1579,7 +1621,8 @@ Public Sub LoadSwitchData( _
     ByRef SwStatus() As Integer, _
     ByRef BusNames() As String, _
     ByRef BusBaseKV() As Double, _
-    ByVal SBase_MVA As Double)
+    ByVal SBase_MVA As Double, _
+    ByRef busDict As Object)
 
     Dim ws As Worksheet
     Dim lastRow As Long
@@ -1590,7 +1633,8 @@ Public Sub LoadSwitchData( _
     Dim R_ohm As Double, X_ohm As Double
     Dim Ubase1 As Double
     Dim stVal As Variant
-    
+    Dim data As Variant
+
     On Error Resume Next
     Set ws = ThisWorkbook.Worksheets("spinace")
     If ws Is Nothing Then
@@ -1598,55 +1642,57 @@ Public Sub LoadSwitchData( _
         Exit Sub
     End If
     On Error GoTo 0
-    
+
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     If lastRow < 3 Then
         nSwitches = 0
         Exit Sub
     End If
-    
+
     nSwitches = lastRow - 2
-    
+
     ReDim SwitchName(1 To nSwitches)
     ReDim SwFrom(1 To nSwitches)
     ReDim SwTo(1 To nSwitches)
     ReDim SwR(1 To nSwitches)
     ReDim SwX(1 To nSwitches)
     ReDim SwStatus(1 To nSwitches)
-    
+
+    ' bulk read B..H (1=B tag, 2=C from, 3=D to, 4=E status, 6=G R, 7=H X)
+    data = ws.Range(ws.Cells(3, 2), ws.Cells(lastRow, 8)).Value
+
     For i = 1 To nSwitches
-        ' B: Tag
-        SwitchName(i) = CStr(ws.Cells(i + 2, 2).Value)
-        fromName = CStr(ws.Cells(i + 2, 3).Value) ' C: Uzol od
-        toName = CStr(ws.Cells(i + 2, 4).Value)   ' D: Uzol do
-        
-        ' E: Status (0/1)
-        stVal = ws.Cells(i + 2, 5).Value
+        SwitchName(i) = CStr(data(i, 1))                    ' B: Tag
+        fromName = CStr(data(i, 2))                         ' C: Uzol od
+        toName = CStr(data(i, 3))                           ' D: Uzol do
+
+        ' E: Status (0/1) -> col 4
+        stVal = data(i, 4)
         If IsEmpty(stVal) Or Trim(CStr(stVal)) = "" Then
             SwStatus(i) = 1
         Else
             SwStatus(i) = CInt(stVal)
         End If
-        
-        idx = GetBusIndex(fromName, BusNames)
+
+        idx = GetBusIndexD(fromName, busDict)
         If idx = 0 Then Err.Raise vbObjectError + 4, , "Uzol '" & fromName & "' v liste 'spinace' neexistuje."
         SwFrom(i) = idx
-        
-        idx = GetBusIndex(toName, BusNames)
+
+        idx = GetBusIndexD(toName, busDict)
         If idx = 0 Then Err.Raise vbObjectError + 5, , "Uzol '" & toName & "' v liste 'spinace' neexistuje."
         SwTo(i) = idx
-        
+
         Ubase1 = BusBaseKV(SwFrom(i))
         If SBase_MVA <> 0# Then
             Zbase_ohm = (Ubase1 * Ubase1) / SBase_MVA
         Else
             Zbase_ohm = 1#
         End If
-        
-        ' G: R [ohm], H: X [ohm]
-        R_ohm = ParseDouble(ws.Cells(i + 2, 7).Value)
-        X_ohm = ParseDouble(ws.Cells(i + 2, 8).Value)
-        
+
+        ' G: R [ohm] -> col 6, H: X [ohm] -> col 7
+        R_ohm = ParseDouble(data(i, 6))
+        X_ohm = ParseDouble(data(i, 7))
+
         If Zbase_ohm <> 0# Then
             SwR(i) = R_ohm / Zbase_ohm
             SwX(i) = X_ohm / Zbase_ohm
