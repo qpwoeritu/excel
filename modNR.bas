@@ -27,15 +27,22 @@ Private Sub CalcPower(ByVal nBuses As Long, _
         sinV(i) = Sin(Vang(i))
     Next i
 
+    ' Optimalizácia A5 (sparse): preskakujeme dvojice (i,k), kde Y(i,k)=0
+    ' (t.j. G(i,k)=0 a zároveň B(i,k)=0). V riedkej sieti je takých prvkov drvivá väčšina.
+    Dim Gik As Double, Bik As Double
     For i = 1 To nBuses
         Pcalc(i) = 0#
         Qcalc(i) = 0#
         For k = 1 To nBuses
-            costh = cosV(i) * cosV(k) + sinV(i) * sinV(k)
-            sinth = sinV(i) * cosV(k) - cosV(i) * sinV(k)
-            ViVk = Vmag(i) * Vmag(k)
-            Pcalc(i) = Pcalc(i) + ViVk * (G(i, k) * costh + B(i, k) * sinth)
-            Qcalc(i) = Qcalc(i) + ViVk * (G(i, k) * sinth - B(i, k) * costh)
+            Gik = G(i, k)
+            Bik = B(i, k)
+            If Gik <> 0# Or Bik <> 0# Then
+                costh = cosV(i) * cosV(k) + sinV(i) * sinV(k)
+                sinth = sinV(i) * cosV(k) - cosV(i) * sinV(k)
+                ViVk = Vmag(i) * Vmag(k)
+                Pcalc(i) = Pcalc(i) + ViVk * (Gik * costh + Bik * sinth)
+                Qcalc(i) = Qcalc(i) + ViVk * (Gik * sinth - Bik * costh)
+            End If
         Next k
     Next i
 End Sub
@@ -119,6 +126,8 @@ Private Sub BuildJacobian(ByVal nBuses As Long, _
     Dim costh As Double, sinth As Double
     Dim H As Double, n As Double, m As Double, L As Double
     Dim Vi As Double
+    Dim Gik As Double, Bik As Double
+    Dim sz As Long, r As Long, c As Long
 
     ' Predpočet trigonometrie raz na uzol (A4)
     Dim cosV() As Double, sinV() As Double
@@ -129,48 +138,61 @@ Private Sub BuildJacobian(ByVal nBuses As Long, _
         sinV(i) = Sin(Vang(i))
     Next i
 
+    ' Optimalizácia A5 (sparse): J sa medzi iteráciami reusuje (ReDim je len raz mimo slučky)
+    ' a Solve ho prepíše, takže ho najprv vynulujeme. Off-diagonálne prvky kde Y(i,k)=0
+    ' potom necháme na nule – odpadá výpočet H,N,M,L pre tieto dvojice.
+    sz = 2 * nPQ
+    For r = 1 To sz
+        For c = 1 To sz
+            J(r, c) = 0#
+        Next c
+    Next r
+
     For rowPQ = 1 To nPQ
         i = PQIndex(rowPQ)
+        Vi = Vmag(i)
+        If Abs(Vi) < 0.000000001 Then Vi = 0.000000001
+
+        ' Diagonálny prvok (i = k) – vždy nenulový (G(i,i), B(i,i) sú sumou pripojených admitancií)
+        H = -Qcalc(i) - B(i, i) * Vi * Vi
+        n = Pcalc(i) / Vi + G(i, i) * Vi
+        m = Pcalc(i) - G(i, i) * Vi * Vi
+        L = Qcalc(i) / Vi - B(i, i) * Vi
+
+        J(rowPQ, rowPQ) = H
+        J(rowPQ, nPQ + rowPQ) = n
+
+        If BusTypes(i) = btPQ Then
+            J(nPQ + rowPQ, rowPQ) = m
+            J(nPQ + rowPQ, nPQ + rowPQ) = L
+        ElseIf BusTypes(i) = btPV Then
+            ' Pre PV uzol: rovnica ?Q nahradená podmienkou ?V = 0 (jednotková diagonála).
+            J(nPQ + rowPQ, rowPQ) = 0#
+            J(nPQ + rowPQ, nPQ + rowPQ) = 1#
+        End If
+
+        ' Off-diagonálne prvky – preskoč keď Y(i,k)=0 (sparse)
         For colPQ = 1 To nPQ
-            k = PQIndex(colPQ)
-            ' Výpočet derivácií (H, N, M, L) je rovnaký pre všetky typy (závisí od fyziky siete)
-            ' Až pri zápise do J rozhodneme, či ich použijeme
-            If i = k Then
-                Vi = Vmag(i)
-                If Abs(Vi) < 0.000000001 Then Vi = 0.000000001
-                H = -Qcalc(i) - B(i, i) * Vi * Vi
-                n = Pcalc(i) / Vi + G(i, i) * Vi
-                m = Pcalc(i) - G(i, i) * Vi * Vi
-                L = Qcalc(i) / Vi - B(i, i) * Vi
-            Else
-                ' Cos(Vang(i) - Vang(k)) a Sin(Vang(i) - Vang(k)) cez súčtové vzorce (A4)
-                costh = cosV(i) * cosV(k) + sinV(i) * sinV(k)
-                sinth = sinV(i) * cosV(k) - cosV(i) * sinV(k)
-                H = Vmag(i) * Vmag(k) * (G(i, k) * sinth - B(i, k) * costh)
-                n = Vmag(i) * (G(i, k) * costh + B(i, k) * sinth)
-                m = -Vmag(i) * Vmag(k) * (G(i, k) * costh + B(i, k) * sinth)
-                L = Vmag(i) * (G(i, k) * sinth - B(i, k) * costh)
-            End If
+            If colPQ <> rowPQ Then
+                k = PQIndex(colPQ)
+                Gik = G(i, k)
+                Bik = B(i, k)
+                If Gik <> 0# Or Bik <> 0# Then
+                    costh = cosV(i) * cosV(k) + sinV(i) * sinV(k)
+                    sinth = sinV(i) * cosV(k) - cosV(i) * sinV(k)
+                    H = Vmag(i) * Vmag(k) * (Gik * sinth - Bik * costh)
+                    n = Vmag(i) * (Gik * costh + Bik * sinth)
 
-            ' H a N bloky (dP/dTheta, dP/dV) sú platné pre PQ aj PV (lebo P je špecifikované pre oba)
-            J(rowPQ, colPQ) = H
-            J(rowPQ, nPQ + colPQ) = n
+                    J(rowPQ, colPQ) = H
+                    J(rowPQ, nPQ + colPQ) = n
 
-            ' M a L bloky (dQ/dTheta, dQ/dV)
-            If BusTypes(i) = btPQ Then
-                ' Pre PQ uzol: Použijeme štandardné M a L
-                J(nPQ + rowPQ, colPQ) = m
-                J(nPQ + rowPQ, nPQ + colPQ) = L
-            ElseIf BusTypes(i) = btPV Then
-                ' Spracovanie PV uzla v Jakobiáne:
-                ' Rovnica pre odchýlku jalového výkonu je nahradená podmienkou konštantného napätia (dV = 0).
-                ' To dosiahne riadkom s nulami a jednotkou na diagonále v časti dP/dV.
-                If i = k Then
-                    J(nPQ + rowPQ, colPQ) = 0#         ' dV/dTheta = 0
-                    J(nPQ + rowPQ, nPQ + colPQ) = 1#   ' dV/dV    = 1
-                Else
-                    J(nPQ + rowPQ, colPQ) = 0#
-                    J(nPQ + rowPQ, nPQ + colPQ) = 0#
+                    If BusTypes(i) = btPQ Then
+                        m = -Vmag(i) * Vmag(k) * (Gik * costh + Bik * sinth)
+                        L = Vmag(i) * (Gik * sinth - Bik * costh)
+                        J(nPQ + rowPQ, colPQ) = m
+                        J(nPQ + rowPQ, nPQ + colPQ) = L
+                    End If
+                    ' Pre PV uzly ostávajú off-diagonálne M, L bloky nulové (už vynulované).
                 End If
             End If
         Next colPQ

@@ -311,21 +311,17 @@ Cleanup:
 End Sub
 
 ' Makro pre VBS – kompletný beh: Y-matica + NR
+' NewtonRaphsonLoadFlow si data aj Y-maticu robí samo (vrátane zápisu Y na list cez WriteYMatrix),
+' takže oddelené volanie CmdBuildYMatrix by len duplikovalo načítanie a stavbu matice.
 Public Sub RunFullLoadFlow()
     Application.ScreenUpdating = False
     Application.EnableEvents = False
     Application.Calculation = xlCalculationManual
-    
+
     On Error GoTo Cleanup
-    
-    Call CmdBuildYMatrix
+
     Call CmdRunNR
-    
-    ' Aktualizácia SLD (ak NR zbehne OK, CmdRunNR volá UpdateSLD? Nie, pridáme to do CmdRunNR alebo sem)
-    ' CmdRunNR je Sub, ktorá volá NewtonRaphsonLoadFlow.
-    ' NewtonRaphsonLoadFlow je v modNR.
-    ' Pridáme volanie UpdateSLD na koniec NewtonRaphsonLoadFlow v modNR.
-    
+
 Cleanup:
     Application.ScreenUpdating = True
     Application.EnableEvents = True
