@@ -587,6 +587,9 @@ Public Sub NewtonRaphsonLoadFlow()
     converged = False
     iterUsed = 0
 
+    Application.DisplayStatusBar = True
+    Application.StatusBar = "Load Flow NR  [--------------------]  čakajte..."
+
     '--------------------------
     ' Hlavný NR iteračný cyklus
     '--------------------------
@@ -599,6 +602,10 @@ Public Sub NewtonRaphsonLoadFlow()
 
             ' vektor nesúladu a epsilon (upravený pre PV)
             Call BuildMismatchVectors(nBuses, BusTypes, Pspec, Qspec, Vmag, Pcalc, Qcalc, PQIndex, nPQ, mismatch, maxDP, maxDQ, eps, BusBaseKV)
+
+            ' Progress bar v StatusBar + DoEvents (zabraňuje "nereaguje")
+            Application.StatusBar = NRProgressStr(iter, maxIter, eps, SBase_MVA, Timer - startTime)
+            DoEvents
 
             ' logovanie napätí a epsilon do bufrov (flush po slučke)
             For bIdx = 1 To nBuses
@@ -716,6 +723,7 @@ SkipNR:
         Application.ScreenUpdating = prevScreen
         Application.EnableEvents = prevEvents
     End If
+    Application.StatusBar = False
     ' --------------------------------------------
 
     Exit Sub
@@ -727,9 +735,29 @@ ErrHandler:
         Application.ScreenUpdating = prevScreen
         Application.EnableEvents = prevEvents
     End If
+    Application.StatusBar = False
     ' --------------------------------------------------------------------------------------
     MsgBox "Chyba v Newton-Raphson výpočte: " & Err.Description, vbCritical
 End Sub
+'--------------------------------------
+' Textový progress bar pre StatusBar
+' Príklad: "Load Flow NR  [=========-----------]  iter 4/20  |  eps = 0.023 MW  |  12.3 s"
+'--------------------------------------
+Private Function NRProgressStr(ByVal iter As Long, ByVal maxIter As Long, _
+                               ByVal eps As Double, ByVal SBase_MVA As Double, _
+                               ByVal elapsed As Double) As String
+    Const BAR_LEN As Long = 20
+    Dim filled As Long
+    filled = CLng(CDbl(iter) / CDbl(maxIter) * BAR_LEN)
+    If filled > BAR_LEN Then filled = BAR_LEN
+    Dim bar As String
+    bar = "[" & String(filled, "=") & String(BAR_LEN - filled, "-") & "]"
+    NRProgressStr = "Load Flow NR  " & bar & _
+                    "  iter " & iter & "/" & maxIter & _
+                    "  |  eps = " & Format(eps * SBase_MVA, "0.000") & " MW" & _
+                    "  |  " & Format(elapsed, "0.0") & " s"
+End Function
+
 '--------------------------------------
 ' Výpočet a zápis zaťaženia uzlov (P, Q, I) do stĺpcov K, L, M
 '--------------------------------------
