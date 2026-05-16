@@ -217,10 +217,17 @@ Private Sub SolveLinearSystem_Gauss(ByRef J() As Double, _
     Dim maxValue As Double
     Dim temp As Double
     Dim factor As Double
+    Dim Jki As Double, Jii_inv As Double, rhs_i As Double
 
     On Error GoTo ErrHandler
 
     n = UBound(J, 1)
+
+    ' Optimalizácia A6: cache pivot-riadku do 1D poľa (1D prístup je v VBA výrazne
+    ' rýchlejší než 2D), sparse-skip pre nulové J(k,i) v ľavom stĺpci pivotu,
+    ' a 1/J(i,i) sa počíta raz – n delení sa nahradí n násobeniami.
+    Dim rowi() As Double
+    ReDim rowi(1 To n)
 
     ' Priama eliminácia s čiastočným pivotovaním (in-place na J, rhs)
     For i = 1 To n
@@ -251,13 +258,23 @@ Private Sub SolveLinearSystem_Gauss(ByRef J() As Double, _
                       "Matica je singulárna, sústava nemá riešenie."
         End If
 
-        ' Eliminácia pod pivotom
+        ' Cache: pivot row do 1D, 1/J(i,i) a rhs(i) do skalárov
+        Jii_inv = 1# / J(i, i)
+        rhs_i = rhs(i)
+        For m = i + 1 To n
+            rowi(m) = J(i, m)
+        Next m
+
+        ' Eliminácia pod pivotom – preskoč riadky kde J(k,i)=0 (sparse)
         For k = i + 1 To n
-            factor = J(k, i) / J(i, i)
-            rhs(k) = rhs(k) - factor * rhs(i)
-            For m = i + 1 To n
-                J(k, m) = J(k, m) - factor * J(i, m)
-            Next m
+            Jki = J(k, i)
+            If Jki <> 0# Then
+                factor = Jki * Jii_inv
+                rhs(k) = rhs(k) - factor * rhs_i
+                For m = i + 1 To n
+                    J(k, m) = J(k, m) - factor * rowi(m)
+                Next m
+            End If
         Next k
     Next i
 
