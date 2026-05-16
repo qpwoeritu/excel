@@ -1,6 +1,29 @@
 Option Explicit
 
 '--------------------------------------
+' Throttled progress (Možnosť A): Solve a iné horúce slučky volajú
+' MaybeYield ktorý max raz za ~200 ms aktualizuje StatusBar a urobí
+' DoEvents. Tým sa zabráni stavu "nereaguje" aj keď jedna NR iterácia
+' trvá > 5 sekúnd. Stav sa nastavuje v NewtonRaphsonLoadFlow pred slučkou.
+'--------------------------------------
+Private m_nrIter As Long
+Private m_nrMaxIter As Long
+Private m_nrSBase As Double
+Private m_nrStartTime As Double
+Private m_nrLastEps As Double
+Private m_lastYield As Double
+
+Private Sub MaybeYield()
+    Dim t As Double
+    t = Timer
+    If t - m_lastYield > 0.2 Then
+        Application.StatusBar = NRProgressStr(m_nrIter, m_nrMaxIter, m_nrLastEps, m_nrSBase, t - m_nrStartTime)
+        DoEvents
+        m_lastYield = t
+    End If
+End Sub
+
+'--------------------------------------
 ' Výpočet činných a jalových výkonov P, Q
 ' Optimalizácia A4: predpočítané Cos/Sin pre každý uhol uzla;
 ' v dvojnásobnom cykle použijeme súčtové vzorce namiesto opätovných
@@ -202,6 +225,11 @@ Private Sub SolveLinearSystem_Gauss(ByRef J() As Double, _
 
     ' Priama eliminácia s čiastočným pivotovaním (in-place na J, rhs)
     For i = 1 To n
+        ' Throttled progress + DoEvents (max raz za ~200 ms).
+        ' Pre n=1000 sa v outer slučke zavolá 1000-krát, ale len ~50 z toho
+        ' fyzicky aktualizuje StatusBar – overhead je zanedbateľný.
+        Call MaybeYield
+
         maxRow = i
         maxValue = Abs(J(i, i))
         For k = i + 1 To n
@@ -551,22 +579,37 @@ Public Sub NewtonRaphsonLoadFlow()
     Application.DisplayStatusBar = True
     Application.StatusBar = "Load Flow NR  [--------------------]  čakajte..."
 
+    ' Setup throttled progress – Solve volá MaybeYield ktorý čítä tieto premenné
+    m_nrMaxIter = maxIter
+    m_nrSBase = SBase_MVA
+    m_nrStartTime = startTime
+    m_nrLastEps = 0#
+    m_lastYield = Timer
+
+    ' ScreenUpdating = True počas NR slučky, aby StatusBar fyzicky prekreslil.
+    ' V slučke sa nečíta ani nepíše do buniek, takže to nezpomalí výpočet.
+    ' Pred post-NR zápismi sa znova vypne.
+    Application.ScreenUpdating = True
+
     '--------------------------
     ' Hlavný NR iteračný cyklus
     '--------------------------
     If nPQ > 0 Then
         For iter = 1 To maxIter
             iterUsed = iter
+            m_nrIter = iter
 
             ' výpočet P, Q
             Call CalcPower(nBuses, G, B, Vmag, Vang, Pcalc, Qcalc)
 
             ' vektor nesúladu a epsilon (upravený pre PV)
             Call BuildMismatchVectors(nBuses, BusTypes, Pspec, Qspec, Vmag, Pcalc, Qcalc, PQIndex, nPQ, mismatch, maxDP, maxDQ, eps, BusBaseKV)
+            m_nrLastEps = eps
 
-            ' Progress bar v StatusBar + DoEvents (zabraňuje "nereaguje")
+            ' Progress bar v StatusBar + DoEvents na hranici iterácie (garantovaný update)
             Application.StatusBar = NRProgressStr(iter, maxIter, eps, SBase_MVA, Timer - startTime)
             DoEvents
+            m_lastYield = Timer
 
             ' logovanie napätí a epsilon do bufrov (flush po slučke)
             For bIdx = 1 To nBuses
@@ -600,6 +643,9 @@ Public Sub NewtonRaphsonLoadFlow()
     Else
         converged = True
     End If
+
+    ' Vypneme ScreenUpdating pre post-NR zápisy (veľa buniek – výrazne zrýchli zápis).
+    Application.ScreenUpdating = False
 
     ' Flush log bufrov (jeden Range.Value zápis na list)
     Call FlushVoltageLog(VBuf, VRow)
