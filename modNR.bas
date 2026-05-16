@@ -650,6 +650,10 @@ Public Sub NewtonRaphsonLoadFlow()
             DoEvents
             m_lastYield = Timer
 
+            ' Progress bar v StatusBar + DoEvents (zabraňuje "nereaguje")
+            Application.StatusBar = NRProgressStr(iter, maxIter, eps, SBase_MVA, Timer - startTime)
+            DoEvents
+
             ' logovanie napätí a epsilon do bufrov (flush po slučke)
             For bIdx = 1 To nBuses
                 VRow = VRow + 1
