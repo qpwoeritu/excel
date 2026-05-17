@@ -1077,21 +1077,6 @@ Public Sub FlushEpsilonLog(ByRef EBuf As Variant, ByVal ERow As Long)
     ws.Range(ws.Cells(2, 1), ws.Cells(1 + ERow, 4)).Value = outArr
 End Sub
 
-' Zápis súhrnných výsledkov do listu "index"
-Public Sub WriteSummaryToIndex(ByVal totalTime As Double, _
-                               ByVal iterCount As Long, _
-                               ByVal epsFinal As Double, _
-                               ByVal converged As Boolean)
-
-    Dim ws As Worksheet
-    Set ws = ThisWorkbook.Worksheets("index")
-    
-    ws.Range("B6").Value = totalTime
-    ws.Range("B7").Value = iterCount
-    ws.Range("B8").Value = epsFinal
-    ws.Range("B9").Value = IIf(converged, "Konvergovalo", "Nekonvergovalo")
-End Sub
-
 ' Zápis výsledných napätí z NR výpočtu na list "uzly"
 ' H (stĺpec 8): |V| výp. [kV]
 ' I (stĺpec 9): ? výp. [deg]

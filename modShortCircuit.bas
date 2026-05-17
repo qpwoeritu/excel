@@ -1,12 +1,18 @@
 Attribute VB_Name = "modShortCircuit"
 '==========================
 ' Modul: modShortCircuit
-' Posledn� �prava: 15.02.2026 15:15 (Bratislava)
+' Skratové výpočty (Ik3''). Rozdelené na dve fázy:
+'   1) BuildShortCircuitMatrix – zostavenie admitančnej matice Ysc
+'   2) SolveShortCircuit       – inverzia Ysc a výpočet Ik vo všetkých uzloch
+' runCALC ich volá oddelene, aby vedel časovať a zobrazovať každú fázu zvlášť.
 '==========================
 Option Explicit
 
-' V�po�et Ik3 (argumenty po�a s� Variant pre stabilitu)
-Public Sub CalculateShortCircuit( _
+'--------------------------------------
+' Zostavenie skratovej admitančnej matice Ysc.
+' Výstup: Ysc(1..nBuses, 1..nBuses)
+'--------------------------------------
+Public Sub BuildShortCircuitMatrix( _
     ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBus As Variant, ByRef ToBus As Variant, _
     ByRef R As Variant, ByRef X As Variant, ByRef BranchStatus As Variant, _
     ByVal nSwitches As Long, ByRef SwFrom As Variant, ByRef SwTo As Variant, ByRef SwR As Variant, ByRef SwX As Variant, ByRef SwStatus As Variant, _
@@ -18,23 +24,23 @@ Public Sub CalculateShortCircuit( _
     ByRef DifReaktorR As Variant, ByRef DifReaktorX As Variant, _
     ByVal nMotors As Long, ByRef MotorBus As Variant, ByRef MotorXk As Variant, ByRef MotorStatus As Variant, _
     ByRef BusNames As Variant, ByRef BusTypes As Variant, ByRef BusBaseKV As Variant, _
-    ByRef Ik_input As Variant, ByRef Ik_result As Variant, ByVal SBase_MVA As Double, _
-    ByRef IsBusIsolated As Variant, ByRef IsBranchIsolated As Variant, ByRef IsTrafoIsolated As Variant, ByRef IsReaktorIsolated As Variant, ByRef IsDifReaktorIsolated As Variant, ByRef IsSwitchIsolated As Variant)
+    ByRef Ik_input As Variant, ByVal SBase_MVA As Double, _
+    ByRef IsBusIsolated As Variant, ByRef IsBranchIsolated As Variant, ByRef IsTrafoIsolated As Variant, _
+    ByRef IsReaktorIsolated As Variant, ByRef IsDifReaktorIsolated As Variant, ByRef IsSwitchIsolated As Variant, _
+    ByRef Ysc() As Complex)
 
     Dim i As Long, J As Long, k As Long
-    Dim Ysc() As Complex, MatBig() As Double, InvBig() As Double
     Dim Z As Complex, Ys As Complex, t1 As Complex, t2 As Complex, A As Double
-    Dim slackIdx As Long, Ik_slack As Double, Z_grid_abs As Double, Un As Double
-    Dim R_th As Double, X_th As Double, Z_th As Double
-    
-    ReDim Ysc(1 To nBuses, 1 To nBuses), Ik_result(1 To nBuses)
-    
-    ' Inicializ�cia Ysc (izolovan� = 1.0 na diagon�le)
+    Dim Ik_slack As Double, Z_grid_abs As Double, Un As Double
+
+    ReDim Ysc(1 To nBuses, 1 To nBuses)
+
+    ' Inicializácia Ysc (izolované uzly = 1.0 na diagonále)
     For i = 1 To nBuses
         For J = 1 To nBuses: Ysc(i, J) = CCreate(0, 0): Next J
         If IsBusIsolated(i) Then Ysc(i, i) = CCreate(1, 0)
     Next i
-    
+
     ' Vedenia
     For k = 1 To nBranches
         If BranchStatus(k) > 0 Then
@@ -46,8 +52,8 @@ Public Sub CalculateShortCircuit( _
             End If
         End If
     Next k
-    
-    ' Traf�
+
+    ' Trafá
     For k = 1 To nTrafo
         If Not IsTrafoIsolated(k) And Not (TrR(k) = 0 And TrX(k) = 0) Then
             Z = CCreate(CDbl(TrR(k)), CDbl(TrX(k))): Ys = CDiv(CCreate(1, 0), Z)
@@ -58,8 +64,8 @@ Public Sub CalculateShortCircuit( _
             Ysc(i, J) = CSub(Ysc(i, J), t2): Ysc(J, i) = CSub(Ysc(J, i), t2)
         End If
     Next k
-    
-        ' Sp�na�e
+
+    ' Spínače
     For k = 1 To nSwitches
         If SwStatus(k) > 0 Then
             If Not IsSwitchIsolated(k) And Not (SwR(k) = 0 And SwX(k) = 0) Then
@@ -80,7 +86,7 @@ Public Sub CalculateShortCircuit( _
             Ysc(i, J) = CSub(Ysc(i, J), Ys): Ysc(J, i) = CSub(Ysc(J, i), Ys)
         End If
     Next k
-    
+
     ' Dif. Reaktory
     For k = 1 To nDifReaktory
         If Not IsDifReaktorIsolated(k) And Not (DifReaktorR(k) = 0 And DifReaktorX(k) = 0) Then
@@ -90,24 +96,19 @@ Public Sub CalculateShortCircuit( _
             Ysc(i, J) = CSub(Ysc(i, J), Ys): Ysc(J, i) = CSub(Ysc(J, i), Ys)
         End If
     Next k
-    
-    ' Motory VN - pr�spevok do skratu
-    ' Model: impedancia vo�i zemi Z = j*Xk (R sa zanedb�va alebo je v Xk zahrnut� ako impedancia)
-    ' Y = 1 / (j*Xk) = -j / Xk
+
+    ' Motory VN – príspevok do skratu. Model: Z = j*Xk -> Ys = -j*(1/Xk).
     For k = 1 To nMotors
         If MotorStatus(k) = 1 Then
-            ' Kontrola na nenulov� reaktanciu
             If Abs(CDbl(MotorXk(k))) > 0.0000001 Then
-                ' Ys = 1 / (j * Xk) = -j * (1/Xk)
                 Ys = CCreate(0, -1# / CDbl(MotorXk(k)))
                 i = MotorBus(k)
-                ' Pridanie k diagon�le
                 Ysc(i, i) = CAdd(Ysc(i, i), Ys)
             End If
         End If
     Next k
-    
-    ' Slack impedancia
+
+    ' Slack impedancia (z dodaného Ik3 v listoch uzly)
     For i = 1 To nBuses
         If BusTypes(i) = 0 Then ' btSlack
             Ik_slack = Ik_input(i)
@@ -116,14 +117,34 @@ Public Sub CalculateShortCircuit( _
                 Z_grid_abs = (1.1 * SBase_MVA) / (Sqr(3) * Un * Ik_slack)
                 Ysc(i, i) = CAdd(Ysc(i, i), CDiv(CCreate(1, 0), CCreate(0, Z_grid_abs)))
             End If
-            slackIdx = i: Exit For
+            Exit For
         End If
     Next i
-    
-    ' Debug v�pis skratovej matice
+
+    ' Diagnostický výpis skratovej matice
     Call WriteSCMatrix(Ysc, BusNames)
-    
-    ' Inverzia (Double matica pre Excel MInverse)
+End Sub
+
+'--------------------------------------
+' Inverzia Ysc + výpočet Ik vo všetkých uzloch.
+' Vstup: Ysc (z BuildShortCircuitMatrix)
+' Výstup: Ik_result(1..nBuses) v kA
+'--------------------------------------
+Public Sub SolveShortCircuit( _
+    ByRef Ysc() As Complex, _
+    ByVal nBuses As Long, _
+    ByRef BusBaseKV As Variant, _
+    ByVal SBase_MVA As Double, _
+    ByRef IsBusIsolated As Variant, _
+    ByRef Ik_result As Variant)
+
+    Dim i As Long, J As Long
+    Dim MatBig() As Double, InvBig() As Double
+    Dim R_th As Double, X_th As Double, Z_th As Double, Un As Double
+
+    ReDim Ik_result(1 To nBuses)
+
+    ' Reálna matica 2n × 2n reprezentujúca komplexnú Ysc (Real | -Imag ; Imag | Real)
     ReDim MatBig(1 To 2 * nBuses, 1 To 2 * nBuses)
     For i = 1 To nBuses
         For J = 1 To nBuses
@@ -131,12 +152,11 @@ Public Sub CalculateShortCircuit( _
             MatBig(i, nBuses + J) = -Ysc(i, J).Im: MatBig(nBuses + i, J) = Ysc(i, J).Im
         Next J
     Next i
-    
-    On Error GoTo 0
-    ' Pou�itie vlastnej funkcie na inverziu matice (namiesto excelovsk�ho MInverse)
+
+    ' Inverzia (vlastná Gaussova eliminácia s yieldom kvôli responzívnosti UI)
     Call MatrixInverse_Gauss(MatBig, InvBig)
-    
-    ' V�po�et Ik
+
+    ' Výpočet Ik v každom uzle z diagonály Z_th = Ysc^-1
     For i = 1 To nBuses
         If IsBusIsolated(i) Then
             Ik_result(i) = 0
@@ -162,17 +182,16 @@ Public Sub WriteShortCircuitResults(ByRef Ik_result As Variant, ByVal nBuses As 
     Next i
 End Sub
 
-' Z�pis skratovej admitan�nej matice pre kontrolu
+' Zápis skratovej admitančnej matice pre kontrolu na list SC_matica
 Private Sub WriteSCMatrix(ByRef Ysc() As Complex, ByRef BusNames As Variant)
     Dim ws As Worksheet
     Dim n As Long
     Dim i As Long, J As Long
     Dim row0 As Long, col0 As Long
-    Dim txt As String
-    
+
     Set ws = GetOrCreateSheet("SC_matica")
     ws.Cells.Clear
-    
+
     n = UBound(Ysc, 1)
 
     row0 = 1
@@ -181,7 +200,7 @@ Private Sub WriteSCMatrix(ByRef Ysc() As Complex, ByRef BusNames As Variant)
     Dim arr As Variant
     Dim startRowX As Long
 
-    ' Blok Re(Ysc) - hlavi�ka + matica v jednom Variant poli, jeden Range.Value z�pis
+    ' Blok Re(Ysc) – hlavička + matica v jednom Variant poli, jeden Range.Value zápis
     ws.Cells(row0, col0).Value = "Re(Ysc)"
     ReDim arr(1 To n + 1, 1 To n + 1)
     arr(1, 1) = ""
@@ -213,30 +232,33 @@ Private Sub WriteSCMatrix(ByRef Ysc() As Complex, ByRef BusNames As Variant)
     ws.Range(ws.Cells(startRowX + 1, col0), ws.Cells(startRowX + 1 + n, col0 + n)).Value = arr
 End Sub
 
-
-
 '--------------------------------------
-' V�po�et inverznej matice pomocou Gaussovej elimin�cie
+' Výpočet inverznej matice pomocou Gaussovej eliminácie.
+' Volá PhaseYield (z modProgress) raz za pivotný riadok, aby sa
+' aktualizovala časová bunka (J7) a Excel ostal responzívny počas inverzie.
 '--------------------------------------
 Private Sub MatrixInverse_Gauss(ByRef A_in() As Double, ByRef A_inv() As Double)
     Dim n As Long, i As Long, J As Long, k As Long
     Dim maxRow As Long, maxValue As Double
     Dim temp As Double, factor As Double
     Dim A() As Double
-    
+
     n = UBound(A_in, 1)
     ReDim A(1 To n, 1 To 2 * n)
-    
-    ' Pr�prava matice (A | I)
+
+    ' Príprava matice (A | I)
     For i = 1 To n
         For J = 1 To n
             A(i, J) = A_in(i, J)
             If i = J Then A(i, n + J) = 1# Else A(i, n + J) = 0#
         Next J
     Next i
-    
-    ' Gaussova elimin�cia
+
+    ' Gaussova eliminácia
     For i = 1 To n
+        ' Heartbeat: max raz za ~200 ms aktualizuje časovú bunku J7 a urobí DoEvents
+        Call PhaseYield
+
         maxRow = i
         maxValue = Abs(A(i, i))
         For k = i + 1 To n
@@ -245,18 +267,18 @@ Private Sub MatrixInverse_Gauss(ByRef A_in() As Double, ByRef A_inv() As Double)
                 maxRow = k
             End If
         Next k
-        
+
         If maxRow <> i Then
             For k = 1 To 2 * n
                 temp = A(i, k): A(i, k) = A(maxRow, k): A(maxRow, k) = temp
             Next k
         End If
-        
-        If Abs(A(i, i)) < 1E-18 Then Err.Raise vbObjectError + 102, , "Matica je singul�rna."
-        
+
+        If Abs(A(i, i)) < 1E-18 Then Err.Raise vbObjectError + 102, , "Skratová matica je singulárna."
+
         temp = A(i, i)
         For k = 1 To 2 * n: A(i, k) = A(i, k) / temp: Next k
-        
+
         For k = 1 To n
             If k <> i Then
                 factor = A(k, i)
@@ -266,10 +288,8 @@ Private Sub MatrixInverse_Gauss(ByRef A_in() As Double, ByRef A_inv() As Double)
             End If
         Next k
     Next i
-    
+
     ' Extrakcia inverznej matice
     ReDim A_inv(1 To n, 1 To n)
     For i = 1 To n: For J = 1 To n: A_inv(i, J) = A(i, n + J): Next J: Next i
 End Sub
-
-
