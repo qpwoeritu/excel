@@ -1,24 +1,51 @@
 Option Explicit
 
-' Tlačidlo na tvorbu Y-matice
-Public Sub CmdBuildYMatrix()
+'==========================
+' Modul: modMain
+' Jediný verejný vstupný bod pre tlačidlo: runCALC.
+'   - Číta typ výpočtu z index!G5 (1 = load-flow, 2 = skraty)
+'   - Riadi všetky fázy výpočtu cez stavový panel index!I3:J8
+'   - Aktualizuje stav (text + farba) a čas trvania v reálnom čase
+'==========================
+
+' Zámok proti dvojkliku – počas behu runCALC nepustí druhú inštanciu.
+Private m_calcBusy As Boolean
+
+'--------------------------------------
+' Hlavná procedúra – tlačidlo nech volá toto.
+'
+' Fázy a ich bunky v paneli (index!I3:J8):
+'   I3/J3  Načítanie dát + topológia
+'   I4/J4  Tvorba matice (Y pre LF, Ysc pre skraty)
+'   I5/J5  Výpočet load-flow (J5 priebežný čas)
+'   I6     Aktuálne číslo iterácie load-flow
+'   I7/J7  Výpočet skratov (J7 priebežný čas)
+'   I8/J8  Zápis do SLD
+'
+' Bunky neaktívne pre zvolený mód sú zošedené:
+'   LF mód  -> I7:J7 sivé
+'   SC mód  -> I5:J6 sivé
+'--------------------------------------
+Public Sub runCALC()
+    ' Zámok proti dvojkliku – ak už beží, druhá inštancia sa potichu nepustí.
+    If m_calcBusy Then Exit Sub
+    m_calcBusy = True
+
     Dim prevCalc As XlCalculation
-    Dim prevScreen As Boolean, prevEvents As Boolean
+    Dim prevScreen As Boolean
+    Dim prevEvents As Boolean
+    Dim prevStatusBar As Boolean
+    Dim settingsSaved As Boolean
+    settingsSaved = False
 
-    prevCalc = Application.Calculation
-    prevScreen = Application.ScreenUpdating
-    prevEvents = Application.EnableEvents
+    Dim wsIdx As Worksheet
+    Dim phaseCell As Range
+    Dim t0 As Double
+    Dim modeNum As Long
 
-    Application.ScreenUpdating = False
-    Application.EnableEvents = False
-    Application.Calculation = xlCalculationManual
-    Application.DisplayStatusBar = False
-    On Error Resume Next
-    ActiveSheet.DisplayPageBreaks = False
-    On Error GoTo 0
-
-    On Error GoTo ErrHandler
-
+    ' Lokálne premenné s dátami siete (sú v scope všetkých fáz)
+    Dim SBase_MVA As Double
+    Dim VLevels() As Double
     Dim nBuses As Long, nBranches As Long
     Dim BusNames() As String
     Dim BusBaseKV() As Double
@@ -28,42 +55,37 @@ Public Sub CmdBuildYMatrix()
     Dim FromBus() As Long, ToBus() As Long
     Dim BranchName() As String
     Dim R() As Double, X() As Double
-    Dim BranchBshunt() As Double
+    Dim Bshunt() As Double
     Dim BranchStatus() As Integer
-    
+
     Dim nTrafo As Long
     Dim TrFrom() As Long, TrTo() As Long
     Dim TrR() As Double, TrX() As Double
     Dim TrG() As Double, TrB() As Double
     Dim TrRatio() As Double
-    
-    ' Reaktory
+
     Dim nReaktory As Long
     Dim ReaktorName() As String
     Dim ReaktorFrom() As Long, ReaktorTo() As Long
     Dim ReaktorR() As Double, ReaktorX() As Double
-    
-    ' Dif. Reaktory
+
     Dim nDifReaktory As Long
     Dim DifReaktorName() As String
     Dim DifReaktorFrom() As Long, DifReaktorTo() As Long
     Dim DifReaktorR() As Double, DifReaktorX() As Double
-    
-    ' Spínače
+
     Dim nSwitches As Long
     Dim SwitchName() As String
     Dim SwFrom() As Long, SwTo() As Long
     Dim SwR() As Double, SwX() As Double
     Dim SwStatus() As Integer
-    
-    ' Kompenzácia
+
     Dim nComp As Long
     Dim CompName() As String
     Dim CompBus() As Long
     Dim CompB() As Double
     Dim CompStatus() As Integer
-    
-    ' Motory VN
+
     Dim nMotors As Long
     Dim MotorName() As String
     Dim MotorBus() As Long
@@ -72,16 +94,7 @@ Public Sub CmdBuildYMatrix()
     Dim MotorG() As Double
     Dim MotorB() As Double
     Dim MotorStatus() As Integer
-    
-    Dim Y() As Complex
-    Dim G() As Double, B() As Double
-    Dim SBase_MVA As Double
-    Dim VLevels() As Double
 
-    ' bázy
-    Call GetBaseValues(SBase_MVA, VLevels)
-    
-    ' Topológia - Izolované časti
     Dim IsBusIsolated() As Boolean
     Dim IsBranchIsolated() As Boolean
     Dim IsTrafoIsolated() As Boolean
@@ -94,9 +107,91 @@ Public Sub CmdBuildYMatrix()
 
     Dim busDict As Object
 
-    ' uzly a vetvy v p.u.
+    Dim Y() As Complex
+    Dim G() As Double, B() As Double
+
+    Dim Ysc() As Complex
+    Dim Ik_input() As Double, Ik_result As Variant
+    Dim ws As Worksheet
+    Dim i As Long
+
+    ' Uloženie pôvodných nastavení Excelu (obnovíme v Cleanup aj ErrHandler)
+    prevCalc = Application.Calculation
+    prevScreen = Application.ScreenUpdating
+    prevEvents = Application.EnableEvents
+    prevStatusBar = Application.DisplayStatusBar
+    settingsSaved = True
+
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.Calculation = xlCalculationManual
+    Application.DisplayStatusBar = False
+    ' Stlačenie ESC počas behu vyhodí chybu 18 – chytíme ju v ErrHandler
+    ' a označíme aktuálnu fázu ako "chyba" (namiesto tichého zastavenia VBA).
+    Application.EnableCancelKey = xlErrorHandler
+
+    Set wsIdx = ThisWorkbook.Worksheets("index")
+
+    ' Čítanie typu výpočtu z G5
+    Dim modeRaw As Variant
+    modeRaw = wsIdx.Range("G5").Value
+
+    ' Prázdne G5 – nebol vybratý typ výpočtu
+    If IsEmpty(modeRaw) Or (VarType(modeRaw) = vbString And Len(Trim(CStr(modeRaw))) = 0) Then
+        Call RestoreExcelSettings(settingsSaved, prevCalc, prevScreen, prevEvents, prevStatusBar)
+        m_calcBusy = False
+        MsgBox "Nebol vybratý typ výpočtu.", vbExclamation
+        Exit Sub
+    End If
+
+    If Not IsNumeric(modeRaw) Then
+        Call RestoreExcelSettings(settingsSaved, prevCalc, prevScreen, prevEvents, prevStatusBar)
+        m_calcBusy = False
+        MsgBox "Neplatný typ výpočtu (povolené 1 = load-flow, 2 = skraty).", vbExclamation
+        Exit Sub
+    End If
+
+    modeNum = CLng(modeRaw)
+    If modeNum <> 1 And modeNum <> 2 Then
+        Call RestoreExcelSettings(settingsSaved, prevCalc, prevScreen, prevEvents, prevStatusBar)
+        m_calcBusy = False
+        MsgBox "Neplatný typ výpočtu (povolené 1 = load-flow, 2 = skraty).", vbExclamation
+        Exit Sub
+    End If
+
+    ' Vyčistenie stavového panelu I3:J8 (obsah + podfarbenie + farba písma)
+    Call ClearPhasePanel
+
+    ' Počiatočné stavy fáz – "nezačaté" pre relevantné fázy
+    Call SetPhase(wsIdx.Range("I3"), psNotStarted)
+    Call SetPhase(wsIdx.Range("I4"), psNotStarted)
+    Call SetPhase(wsIdx.Range("I8"), psNotStarted)
+    If modeNum = 1 Then
+        Call SetPhase(wsIdx.Range("I5"), psNotStarted)
+        Call DisablePhaseCells(wsIdx.Range("I7:J7"))
+    Else
+        Call SetPhase(wsIdx.Range("I7"), psNotStarted)
+        Call DisablePhaseCells(wsIdx.Range("I5:J6"))
+    End If
+
+    ' Vykreslenie počiatočného stavu používateľovi
+    Application.ScreenUpdating = True
+    DoEvents
+    Application.ScreenUpdating = False
+
+    On Error GoTo ErrHandler
+
+    '====================================================================
+    ' FÁZA 1: Načítanie dát + kontrola topológie (I3/J3)
+    '====================================================================
+    Set phaseCell = wsIdx.Range("I3")
+    Call SetPhase(phaseCell, psRunning)
+    Application.ScreenUpdating = True: DoEvents: Application.ScreenUpdating = False
+    t0 = Timer
+
+    Call GetBaseValues(SBase_MVA, VLevels)
     Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, VLevels, busDict)
-    Call LoadBranchData(nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, BusNames, BusBaseKV, SBase_MVA, BranchBshunt, busDict)
+    Call LoadBranchData(nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, BusNames, BusBaseKV, SBase_MVA, Bshunt, busDict)
     Call LoadTransformerData(nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadReactorData(nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadDifReactorData(nDifReaktory, DifReaktorName, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, BusNames, BusBaseKV, SBase_MVA, busDict)
@@ -104,8 +199,6 @@ Public Sub CmdBuildYMatrix()
     Call LoadCompData(nComp, CompName, CompBus, CompB, CompStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadMotorData(nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorG, MotorB, MotorStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
 
-    ' Identifikácia izolovaných častí (aj pre samostatnú stavbu matice)
-    ' Posielame BranchStatus
     Call FindIsolatedParts(nBuses, nBranches, FromBus, ToBus, BranchStatus, _
                            nTrafo, TrFrom, TrTo, _
                            nReaktory, ReaktorFrom, ReaktorTo, _
@@ -121,213 +214,167 @@ Public Sub CmdBuildYMatrix()
                               nTrafo, TrFrom, TrTo, IsTrafoIsolated, _
                               nComp, CompBus, IsCompIsolated)
 
-    Call BuildYBus(nBuses, nBranches, FromBus, ToBus, R, X, BranchStatus, BranchBshunt, _
-                   nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
-                   nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, _
-                   nReaktory, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, _
-                   nDifReaktory, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, _
-                   nComp, CompBus, CompB, CompStatus, _
-                   nMotors, MotorBus, MotorG, MotorB, MotorStatus, _
-                   BusNames, IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, _
-                   Y, G, B)
-    
-    MsgBox "Admitančná matica bola vytvorená.", vbInformation
-    GoTo Cleanup
+    Call WritePhaseTime(wsIdx.Range("J3"), Timer - t0)
+    Call SetPhase(phaseCell, psDone)
+    Application.ScreenUpdating = True: DoEvents: Application.ScreenUpdating = False
+
+    '====================================================================
+    ' FÁZA 2: Tvorba matice (I4/J4)
+    '====================================================================
+    Set phaseCell = wsIdx.Range("I4")
+    Call SetPhase(phaseCell, psRunning)
+    Application.ScreenUpdating = True: DoEvents: Application.ScreenUpdating = False
+    t0 = Timer
+
+    If modeNum = 1 Then
+        ' Pre load-flow: vynulujeme izolované uzly v Pspec/Qspec/Vmag (aby mismatch vektor nebol skreslený)
+        For i = 1 To nBuses
+            If IsBusIsolated(i) Then
+                Pspec(i) = 0#
+                Qspec(i) = 0#
+                Vmag(i) = 0#
+            End If
+        Next i
+
+        Call BuildYBus(nBuses, nBranches, FromBus, ToBus, R, X, BranchStatus, Bshunt, _
+                       nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
+                       nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, _
+                       nReaktory, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, _
+                       nDifReaktory, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, _
+                       nComp, CompBus, CompB, CompStatus, _
+                       nMotors, MotorBus, MotorG, MotorB, MotorStatus, _
+                       BusNames, IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, _
+                       Y, G, B)
+    Else
+        ' Pre skraty: načítaj Ik_input zo stĺpca J listu uzly (pre slack)
+        ReDim Ik_input(1 To nBuses)
+        Set ws = ThisWorkbook.Worksheets("uzly")
+        If nBuses = 1 Then
+            Ik_input(1) = ParseDouble(ws.Cells(3, 10).Value)
+        Else
+            Dim ikArr As Variant
+            ikArr = ws.Range(ws.Cells(3, 10), ws.Cells(2 + nBuses, 10)).Value
+            For i = 1 To nBuses
+                Ik_input(i) = ParseDouble(ikArr(i, 1))
+            Next i
+        End If
+
+        Call BuildShortCircuitMatrix(nBuses, nBranches, FromBus, ToBus, R, X, BranchStatus, _
+                                     nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
+                                     nTrafo, TrFrom, TrTo, TrR, TrX, TrRatio, _
+                                     nReaktory, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, _
+                                     nDifReaktory, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, _
+                                     nMotors, MotorBus, MotorXk, MotorStatus, _
+                                     BusNames, BusTypes, BusBaseKV, Ik_input, SBase_MVA, _
+                                     IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, _
+                                     Ysc)
+    End If
+
+    Call WritePhaseTime(wsIdx.Range("J4"), Timer - t0)
+    Call SetPhase(phaseCell, psDone)
+    Application.ScreenUpdating = True: DoEvents: Application.ScreenUpdating = False
+
+    '====================================================================
+    ' FÁZA 3: Výpočet (LF: I5/J5/I6  |  SC: I7/J7)
+    '====================================================================
+    If modeNum = 1 Then
+        Set phaseCell = wsIdx.Range("I5")
+        Call SetPhase(phaseCell, psRunning)
+        Call WritePhaseIter(wsIdx.Range("I6"), 0)
+        Application.ScreenUpdating = True: DoEvents: Application.ScreenUpdating = False
+
+        ' BeginPhaseTimer nastaví bunku J5 na formát "0.0" a hodnotu 0;
+        ' následné PhaseYield z NR Gauss solvera ju potom priebežne aktualizujú.
+        ' (PhaseYield si sám krátko zapne ScreenUpdating kvôli prekresleniu.)
+        Call BeginPhaseTimer(wsIdx.Range("J5"))
+
+        Call RunNRPhase(SBase_MVA, nBuses, BusNames, BusTypes, BusBaseKV, _
+                        Vmag, Vang, Pspec, Qspec, G, B, _
+                        nBranches, FromBus, ToBus, R, X, BranchStatus, Bshunt, _
+                        nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
+                        nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, _
+                        nReaktory, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, _
+                        nDifReaktory, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, _
+                        nComp, CompBus, CompB, CompStatus, _
+                        nMotors, MotorBus, MotorR, MotorG, MotorB, MotorStatus, _
+                        IsBusIsolated, _
+                        wsIdx.Range("I6"))
+
+        Call WritePhaseTime(wsIdx.Range("J5"), PhaseElapsed)
+        Call EndPhaseTimer
+        Call SetPhase(phaseCell, psDone)
+        Application.ScreenUpdating = True: DoEvents: Application.ScreenUpdating = False
+    Else
+        Set phaseCell = wsIdx.Range("I7")
+        Call SetPhase(phaseCell, psRunning)
+        Application.ScreenUpdating = True: DoEvents: Application.ScreenUpdating = False
+
+        Call BeginPhaseTimer(wsIdx.Range("J7"))
+
+        Call SolveShortCircuit(Ysc, nBuses, BusBaseKV, SBase_MVA, IsBusIsolated, Ik_result)
+        Call WriteShortCircuitResults(Ik_result, nBuses)
+
+        Call WritePhaseTime(wsIdx.Range("J7"), PhaseElapsed)
+        Call EndPhaseTimer
+        Call SetPhase(phaseCell, psDone)
+        Application.ScreenUpdating = True: DoEvents: Application.ScreenUpdating = False
+    End If
+
+    '====================================================================
+    ' FÁZA 4: Zápis do SLD (I8/J8)
+    '====================================================================
+    Set phaseCell = wsIdx.Range("I8")
+    Call SetPhase(phaseCell, psRunning)
+    Application.ScreenUpdating = True: DoEvents: Application.ScreenUpdating = False
+    t0 = Timer
+
+    Call UpdateSLD
+
+    Call WritePhaseTime(wsIdx.Range("J8"), Timer - t0)
+    Call SetPhase(phaseCell, psDone)
+
+    ' Úspešné dokončenie – obnoviť Excel a oznámiť
+    Call RestoreExcelSettings(settingsSaved, prevCalc, prevScreen, prevEvents, prevStatusBar)
+    m_calcBusy = False
+    MsgBox "Výpočet dokončený.", vbInformation
+    Exit Sub
 
 ErrHandler:
-    MsgBox "Chyba pri tvorbe Y-matice: " & Err.Description, vbCritical
+    Dim errNum As Long, errDesc As String
+    errNum = Err.Number
+    errDesc = Err.Description
 
-Cleanup:
-    Application.ScreenUpdating = prevScreen
-    Application.EnableEvents = prevEvents
-    Application.Calculation = prevCalc
-    Application.DisplayStatusBar = True
-End Sub
-
-
-' Tlačidlo na spustenie NR load-flow
-Public Sub CmdRunNR()
-    Call NewtonRaphsonLoadFlow
-End Sub
-
-' Tlačidlo na výpočet skratových prúdov
-Public Sub CmdCalculateShortCircuit()
-    Dim prevCalc As XlCalculation
-    Dim prevScreen As Boolean, prevEvents As Boolean
-
-    prevCalc = Application.Calculation
-    prevScreen = Application.ScreenUpdating
-    prevEvents = Application.EnableEvents
-
-    Application.ScreenUpdating = False
-    Application.EnableEvents = False
-    Application.Calculation = xlCalculationManual
-    Application.DisplayStatusBar = False
+    ' V ErrHandleri nesmieme dopustiť ďalšiu chybu kým ukončíme upratovanie
     On Error Resume Next
-    ActiveSheet.DisplayPageBreaks = False
+    Call EndPhaseTimer
+    If Not phaseCell Is Nothing Then
+        Call SetPhase(phaseCell, psError)
+    End If
     On Error GoTo 0
 
-    On Error GoTo ErrHandler
+    Call RestoreExcelSettings(settingsSaved, prevCalc, prevScreen, prevEvents, prevStatusBar)
+    m_calcBusy = False
 
-    Dim nBuses As Long, nBranches As Long
-    Dim BusNames() As String
-    Dim BusBaseKV() As Double
-    Dim BusTypes() As BusType
-    Dim Vmag() As Double, Vang() As Double
-    Dim Pspec() As Double, Qspec() As Double
-    Dim FromBus() As Long, ToBus() As Long
-    Dim BranchName() As String
-    Dim R() As Double, X() As Double
-    Dim BranchBshunt() As Double
-    Dim BranchStatus() As Integer
-    
-    Dim nTrafo As Long
-    Dim TrFrom() As Long, TrTo() As Long
-    Dim TrR() As Double, TrX() As Double
-    Dim TrG() As Double, TrB() As Double
-    Dim TrRatio() As Double
-    
-    ' Reaktory
-    Dim nReaktory As Long
-    Dim ReaktorName() As String
-    Dim ReaktorFrom() As Long, ReaktorTo() As Long
-    Dim ReaktorR() As Double, ReaktorX() As Double
-    
-    ' Dif. Reaktory
-    Dim nDifReaktory As Long
-    Dim DifReaktorName() As String
-    Dim DifReaktorFrom() As Long, DifReaktorTo() As Long
-    Dim DifReaktorR() As Double, DifReaktorX() As Double
-    
-    ' Spínače
-    Dim nSwitches As Long
-    Dim SwitchName() As String
-    Dim SwFrom() As Long, SwTo() As Long
-    Dim SwR() As Double, SwX() As Double
-    Dim SwStatus() As Integer
-    
-    ' Kompenzácia (len pre načítanie do topológie, výpočet ju ignoruje)
-    Dim nComp As Long
-    Dim CompName() As String
-    Dim CompBus() As Long
-    Dim CompB() As Double
-    Dim CompStatus() As Integer
-    
-    ' Motory VN
-    Dim nMotors As Long
-    Dim MotorName() As String
-    Dim MotorBus() As Long
-    Dim MotorR() As Double
-    Dim MotorXk() As Double
-    Dim MotorG() As Double
-    Dim MotorB() As Double
-    Dim MotorStatus() As Integer
-    
-    Dim SBase_MVA As Double
-    Dim VLevels() As Double
-
-    Dim Ik_input() As Double
-    Dim Ik_result() As Double
-    Dim i As Long, ws As Worksheet
-    
-    ' Topológia - Izolované časti
-    Dim IsBusIsolated() As Boolean
-    Dim IsBranchIsolated() As Boolean
-    Dim IsTrafoIsolated() As Boolean
-    Dim IsReaktorIsolated() As Boolean
-    Dim IsDifReaktorIsolated() As Boolean
-    Dim IsCompIsolated() As Boolean
-    Dim IsSwitchIsolated() As Boolean
-
-    Dim IsMotorIsolated() As Boolean
-    Dim IsGenIsolated() As Boolean
-    Dim isolatedCount As Long
-    
-    Dim busDict As Object
-
-    ' Načítanie dát
-    Call GetBaseValues(SBase_MVA, VLevels)
-    Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, VLevels, busDict)
-    Call LoadBranchData(nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, BusNames, BusBaseKV, SBase_MVA, BranchBshunt, busDict)
-    Call LoadTransformerData(nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, BusNames, BusBaseKV, SBase_MVA, busDict)
-    Call LoadReactorData(nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, BusNames, BusBaseKV, SBase_MVA, busDict)
-    Call LoadDifReactorData(nDifReaktory, DifReaktorName, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, BusNames, BusBaseKV, SBase_MVA, busDict)
-    Call LoadSwitchData(nSwitches, SwitchName, SwFrom, SwTo, SwR, SwX, SwStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
-    Call LoadCompData(nComp, CompName, CompBus, CompB, CompStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
-    Call LoadMotorData(nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorG, MotorB, MotorStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
-    
-    ' Identifikácia izolovaných (aby výpočet nezlyhal na singulárnej matici)
-    Call FindIsolatedParts(nBuses, nBranches, FromBus, ToBus, BranchStatus, _
-                           nTrafo, TrFrom, TrTo, _
-                           nReaktory, ReaktorFrom, ReaktorTo, _
-                           nDifReaktory, DifReaktorFrom, DifReaktorTo, _
-                           nSwitches, SwFrom, SwTo, SwStatus, _
-                           nComp, CompBus, _
-                           nMotors, MotorBus, _
-                           BusTypes, _
-                           IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, IsCompIsolated, IsMotorIsolated, isolatedCount)
-    
-    ' Načítanie vstupných skratov zo stĺpca J (pre Slack)
-    ReDim Ik_input(1 To nBuses)
-    Set ws = ThisWorkbook.Worksheets("uzly")
-    If nBuses = 1 Then
-        Ik_input(1) = ParseDouble(ws.Cells(3, 10).Value)
+    If errNum = 18 Then
+        MsgBox "Výpočet bol zrušený používateľom (ESC).", vbExclamation
     Else
-        Dim ikArr As Variant
-        ikArr = ws.Range(ws.Cells(3, 10), ws.Cells(2 + nBuses, 10)).Value
-        For i = 1 To nBuses
-            Ik_input(i) = ParseDouble(ikArr(i, 1))
-        Next i
+        MsgBox "Chyba pri výpočte: " & errDesc, vbCritical
     End If
-    
-    ' Výpočet (Kompenzácia tu nie je, lebo sa ignoruje pri skratoch)
-    ' Motory sú zahrnuté
-    Call CalculateShortCircuit(nBuses, nBranches, FromBus, ToBus, R, X, BranchStatus, _
-                               nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
-                               nTrafo, TrFrom, TrTo, TrR, TrX, TrRatio, _
-                               nReaktory, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, _
-                               nDifReaktory, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, _
-                               nMotors, MotorBus, MotorXk, MotorStatus, _
-                               BusNames, BusTypes, BusBaseKV, Ik_input, Ik_result, SBase_MVA, _
-                               IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated)
-                               
-    ' Zápis výsledkov
-    Call WriteShortCircuitResults(Ik_result, nBuses)
-    
-    ' Aktualizácia SLD
-    Call UpdateSLD
-    
-    MsgBox "Výpočet skratov ukončený.", vbInformation
-    GoTo Cleanup
+End Sub
 
-ErrHandler:
-    MsgBox "Chyba pri výpočte skratov: " & Err.Description, vbCritical
-
-Cleanup:
+'--------------------------------------
+' Obnoví pôvodné nastavenia Excelu pred opustením runCALC.
+' Volá sa z hlavnej vetvy aj z ErrHandlera.
+'--------------------------------------
+Private Sub RestoreExcelSettings(ByVal saved As Boolean, _
+                                 ByVal prevCalc As XlCalculation, _
+                                 ByVal prevScreen As Boolean, _
+                                 ByVal prevEvents As Boolean, _
+                                 ByVal prevStatusBar As Boolean)
+    If Not saved Then Exit Sub
+    Application.EnableCancelKey = xlInterrupt
+    Application.DisplayStatusBar = prevStatusBar
+    Application.Calculation = prevCalc
     Application.ScreenUpdating = prevScreen
     Application.EnableEvents = prevEvents
-    Application.Calculation = prevCalc
-    Application.DisplayStatusBar = True
 End Sub
-
-' Makro pre VBS – kompletný beh: Y-matica + NR
-' NewtonRaphsonLoadFlow si data aj Y-maticu robí samo (vrátane zápisu Y na list cez WriteYMatrix),
-' takže oddelené volanie CmdBuildYMatrix by len duplikovalo načítanie a stavbu matice.
-Public Sub RunFullLoadFlow()
-    Application.ScreenUpdating = False
-    Application.EnableEvents = False
-    Application.Calculation = xlCalculationManual
-
-    On Error GoTo Cleanup
-
-    Call CmdRunNR
-
-Cleanup:
-    Application.ScreenUpdating = True
-    Application.EnableEvents = True
-    Application.Calculation = xlCalculationAutomatic
-End Sub
-
-
-
-

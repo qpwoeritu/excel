@@ -148,15 +148,13 @@ NextCell:
         Next c
     Next R
     
-    ' Z·pis Ëasu
-    wsIndex.Range("B5").Value = Timer - startTime
-    
+    ' Ëas z·pisu do SLD si meria runCALC (zapÌπe do index!J8) ñ tu uæ nezapisujeme do B5.
     Application.ScreenUpdating = True
     Exit Sub
 
 ErrHandler:
     Application.ScreenUpdating = True
-    MsgBox "Chyba pri aktualiz·cii SLD: " & Err.Description, vbCritical
+    Err.Raise Err.Number, "UpdateSLD", Err.Description
 End Sub
 
 ' Parsovanie reùazca "TAG_X_Y"
