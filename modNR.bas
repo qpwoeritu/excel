@@ -298,42 +298,21 @@ End Sub
 ' maxIter a epsLimit číta z index!B3, B4 (ako predtým).
 '--------------------------------------
 Public Sub RunNRPhase( _
-    ByVal SBase_MVA As Double, _
-    ByVal nBuses As Long, _
-    ByRef BusNames() As String, _
-    ByRef BusTypes() As BusType, _
-    ByRef BusBaseKV() As Double, _
-    ByRef Vmag() As Double, ByRef Vang() As Double, _
-    ByRef Pspec() As Double, ByRef Qspec() As Double, _
+    ByVal SBase_MVA As Double, ByVal nBuses As Long, ByRef BusNames() As String, _
+    ByRef BusTypes() As BusType, ByRef BusBaseKV() As Double, _
+    ByRef Vmag() As Double, ByRef Vang() As Double, ByRef Pspec() As Double, ByRef Qspec() As Double, _
     ByRef G() As Double, ByRef B() As Double, _
-    ByVal nBranches As Long, _
-    ByRef FromBus() As Long, ByRef ToBus() As Long, _
-    ByRef R() As Double, ByRef X() As Double, _
-    ByRef BranchStatus() As Integer, ByRef Bshunt() As Double, _
-    ByVal nSwitches As Long, _
-    ByRef SwFrom() As Long, ByRef SwTo() As Long, _
-    ByRef SwR() As Double, ByRef SwX() As Double, _
-    ByRef SwStatus() As Integer, _
-    ByVal nTrafo As Long, _
-    ByRef TrFrom() As Long, ByRef TrTo() As Long, _
-    ByRef TrR() As Double, ByRef TrX() As Double, _
-    ByRef TrG() As Double, ByRef TrB() As Double, _
-    ByRef TrRatio() As Double, _
-    ByVal nReaktory As Long, _
-    ByRef ReaktorFrom() As Long, ByRef ReaktorTo() As Long, _
-    ByRef ReaktorR() As Double, ByRef ReaktorX() As Double, _
-    ByVal nDifReaktory As Long, _
-    ByRef DifReaktorFrom() As Long, ByRef DifReaktorTo() As Long, _
-    ByRef DifReaktorR() As Double, ByRef DifReaktorX() As Double, _
-    ByVal nComp As Long, _
-    ByRef CompBus() As Long, ByRef CompB() As Double, _
-    ByRef CompStatus() As Integer, _
-    ByVal nMotors As Long, _
-    ByRef MotorBus() As Long, ByRef MotorR() As Double, _
-    ByRef MotorG() As Double, ByRef MotorB() As Double, _
-    ByRef MotorStatus() As Integer, _
-    ByRef IsBusIsolated() As Boolean, _
-    ByVal iterCell As Range)
+    ByVal nBranches As Long, ByRef FromBus() As Long, ByRef ToBus() As Long, _
+    ByRef R() As Double, ByRef X() As Double, ByRef BranchStatus() As Integer, ByRef Bshunt() As Double, _
+    ByVal nSwitches As Long, ByRef SwFrom() As Long, ByRef SwTo() As Long, _
+    ByRef SwR() As Double, ByRef SwX() As Double, ByRef SwStatus() As Integer, _
+    ByVal nTrafo As Long, ByRef TrFrom() As Long, ByRef TrTo() As Long, _
+    ByRef TrR() As Double, ByRef TrX() As Double, ByRef TrG() As Double, ByRef TrB() As Double, ByRef TrRatio() As Double, _
+    ByVal nReaktory As Long, ByRef ReaktorFrom() As Long, ByRef ReaktorTo() As Long, ByRef ReaktorR() As Double, ByRef ReaktorX() As Double, _
+    ByVal nDifReaktory As Long, ByRef DifReaktorFrom() As Long, ByRef DifReaktorTo() As Long, ByRef DifReaktorR() As Double, ByRef DifReaktorX() As Double, _
+    ByVal nComp As Long, ByRef CompBus() As Long, ByRef CompB() As Double, ByRef CompStatus() As Integer, _
+    ByVal nMotors As Long, ByRef MotorBus() As Long, ByRef MotorR() As Double, ByRef MotorG() As Double, ByRef MotorB() As Double, ByRef MotorStatus() As Integer, _
+    ByRef IsBusIsolated() As Boolean, ByVal iterCell As Range)
 
     Dim Pcalc() As Double, Qcalc() As Double
     Dim PQIndex() As Long
