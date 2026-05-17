@@ -138,30 +138,23 @@ Public Sub SolveShortCircuit( _
     ByRef IsBusIsolated As Variant, _
     ByRef Ik_result As Variant)
 
-    Dim i As Long, J As Long
-    Dim MatBig() As Double, InvBig() As Double
+    Dim i As Long
+    Dim Z_inv() As Complex
     Dim R_th As Double, X_th As Double, Z_th As Double, Un As Double
 
     ReDim Ik_result(1 To nBuses)
 
-    ' Reálna matica 2n × 2n reprezentujúca komplexnú Ysc (Real | -Imag ; Imag | Real)
-    ReDim MatBig(1 To 2 * nBuses, 1 To 2 * nBuses)
-    For i = 1 To nBuses
-        For J = 1 To nBuses
-            MatBig(i, J) = Ysc(i, J).Re: MatBig(nBuses + i, nBuses + J) = Ysc(i, J).Re
-            MatBig(i, nBuses + J) = -Ysc(i, J).Im: MatBig(nBuses + i, J) = Ysc(i, J).Im
-        Next J
-    Next i
-
-    ' Inverzia (vlastná Gaussova eliminácia s yieldom kvôli responzívnosti UI)
-    Call MatrixInverse_Gauss(MatBig, InvBig)
+    ' Natívna komplexná inverzia n×n (bez 2n×2n reálneho rozšírenia)
+    ' – objem aritmetiky klesá zhruba 8-krát oproti pôvodnému prístupu.
+    Call ComplexMatrixInverse_Gauss(Ysc, Z_inv)
 
     ' Výpočet Ik v každom uzle z diagonály Z_th = Ysc^-1
     For i = 1 To nBuses
         If IsBusIsolated(i) Then
             Ik_result(i) = 0
         Else
-            R_th = InvBig(i, i): X_th = InvBig(nBuses + i, i)
+            R_th = Z_inv(i, i).Re
+            X_th = Z_inv(i, i).Im
             Z_th = Sqr(R_th * R_th + X_th * X_th)
             Un = BusBaseKV(i)
             If Z_th > 0.0000001 Then
@@ -233,63 +226,109 @@ Private Sub WriteSCMatrix(ByRef Ysc() As Complex, ByRef BusNames As Variant)
 End Sub
 
 '--------------------------------------
-' Výpočet inverznej matice pomocou Gaussovej eliminácie.
-' Volá PhaseYield (z modProgress) raz za pivotný riadok, aby sa
-' aktualizovala časová bunka (J7) a Excel ostal responzívny počas inverzie.
+' Inverzia komplexnej matice Gauss-Jordanovou elimináciou s čiastočným
+' pivotovaním. Pracuje natívne nad UDT Complex – nepoužíva 2n×2n reálne
+' rozšírenie, čím sa objem aritmetiky zníži zhruba 8-krát.
+'
+' Pre rýchlosť je komplexná aritmetika v hot-loopoch (normalizácia pivotného
+' riadka a eliminácia) inlinovaná – ušetrí sa volanie/kópia UDT cez CMul/CDiv.
+'
+' Volá PhaseYield (z modProgress) raz za pivotný riadok, aby sa aktualizovala
+' časová bunka (J7) a Excel ostal responzívny počas dlhej inverzie.
 '--------------------------------------
-Private Sub MatrixInverse_Gauss(ByRef A_in() As Double, ByRef A_inv() As Double)
+Private Sub ComplexMatrixInverse_Gauss(ByRef A_in() As Complex, ByRef A_inv() As Complex)
     Dim n As Long, i As Long, J As Long, k As Long
-    Dim maxRow As Long, maxValue As Double
-    Dim temp As Double, factor As Double
-    Dim A() As Double
+    Dim maxRow As Long, maxMag2 As Double, mag2 As Double
+    Dim tempC As Complex
+    Dim pivotInvRe As Double, pivotInvIm As Double
+    Dim fRe As Double, fIm As Double
+    Dim aRe As Double, aIm As Double
+    Dim A() As Complex
 
     n = UBound(A_in, 1)
     ReDim A(1 To n, 1 To 2 * n)
 
-    ' Príprava matice (A | I)
+    ' Príprava rozšírenej matice (A | I) – ľavá polovica je vstup, pravá identita
     For i = 1 To n
         For J = 1 To n
             A(i, J) = A_in(i, J)
-            If i = J Then A(i, n + J) = 1# Else A(i, n + J) = 0#
         Next J
+        A(i, n + i).Re = 1#
+        ' Imaginárna časť ostáva 0 z inicializácie ReDim
     Next i
 
-    ' Gaussova eliminácia
+    ' Gauss-Jordanova eliminácia
     For i = 1 To n
         ' Heartbeat: max raz za ~200 ms aktualizuje časovú bunku J7 a urobí DoEvents
         Call PhaseYield
 
+        ' Pivotovanie: riadok s najväčším |Z|^2 v stĺpci i.
+        ' Stačí |Z|^2 (ušetríme Sqr), na poradie pivotov to nemá vplyv.
         maxRow = i
-        maxValue = Abs(A(i, i))
+        maxMag2 = A(i, i).Re * A(i, i).Re + A(i, i).Im * A(i, i).Im
         For k = i + 1 To n
-            If Abs(A(k, i)) > maxValue Then
-                maxValue = Abs(A(k, i))
+            mag2 = A(k, i).Re * A(k, i).Re + A(k, i).Im * A(k, i).Im
+            If mag2 > maxMag2 Then
+                maxMag2 = mag2
                 maxRow = k
             End If
         Next k
 
+        ' Výmena riadkov. Stĺpce 1..i-1 sú už nulové z predošlých eliminácií,
+        ' takže výmenu začíname od stĺpca i.
         If maxRow <> i Then
-            For k = 1 To 2 * n
-                temp = A(i, k): A(i, k) = A(maxRow, k): A(maxRow, k) = temp
+            For k = i To 2 * n
+                tempC = A(i, k)
+                A(i, k) = A(maxRow, k)
+                A(maxRow, k) = tempC
             Next k
         End If
 
-        If Abs(A(i, i)) < 1E-18 Then Err.Raise vbObjectError + 102, , "Skratová matica je singulárna."
+        ' Test singularity (|Z|^2 < 1e-36 zodpovedá |Z| < 1e-18 ako v pôvodnej verzii)
+        If maxMag2 < 1E-36 Then
+            Err.Raise vbObjectError + 102, , "Skratová matica je singulárna."
+        End If
 
-        temp = A(i, i)
-        For k = 1 To 2 * n: A(i, k) = A(i, k) / temp: Next k
+        ' Predpočítaná inverzia pivotu: 1/p = conj(p) / |p|^2
+        pivotInvRe = A(i, i).Re / maxMag2
+        pivotInvIm = -A(i, i).Im / maxMag2
 
+        ' Normalizácia pivotného riadka: A(i, :) *= 1/pivot.
+        ' Stĺpec i nastavíme na presnú jednotku (predíde sa zaokrúhľovacej chybe).
+        A(i, i).Re = 1#
+        A(i, i).Im = 0#
+        For k = i + 1 To 2 * n
+            aRe = A(i, k).Re
+            aIm = A(i, k).Im
+            A(i, k).Re = aRe * pivotInvRe - aIm * pivotInvIm
+            A(i, k).Im = aRe * pivotInvIm + aIm * pivotInvRe
+        Next k
+
+        ' Eliminácia ostatných riadkov: A(k, :) -= A(k, i) * A(i, :)
         For k = 1 To n
             If k <> i Then
-                factor = A(k, i)
-                For J = 1 To 2 * n
-                    A(k, J) = A(k, J) - factor * A(i, J)
-                Next J
+                fRe = A(k, i).Re
+                fIm = A(k, i).Im
+                If fRe <> 0# Or fIm <> 0# Then
+                    ' Stĺpec i v eliminovanom riadku bude presne 0
+                    A(k, i).Re = 0#
+                    A(k, i).Im = 0#
+                    For J = i + 1 To 2 * n
+                        ' (fRe + i*fIm) * (A(i,J).Re + i*A(i,J).Im)
+                        '   = (fRe*A.Re - fIm*A.Im) + i*(fRe*A.Im + fIm*A.Re)
+                        A(k, J).Re = A(k, J).Re - (fRe * A(i, J).Re - fIm * A(i, J).Im)
+                        A(k, J).Im = A(k, J).Im - (fRe * A(i, J).Im + fIm * A(i, J).Re)
+                    Next J
+                End If
             End If
         Next k
     Next i
 
-    ' Extrakcia inverznej matice
+    ' Extrakcia inverznej matice z pravej polovice rozšírenej matice
     ReDim A_inv(1 To n, 1 To n)
-    For i = 1 To n: For J = 1 To n: A_inv(i, J) = A(i, n + J): Next J: Next i
+    For i = 1 To n
+        For J = 1 To n
+            A_inv(i, J) = A(i, n + J)
+        Next J
+    Next i
 End Sub
