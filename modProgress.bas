@@ -150,14 +150,18 @@ Public Sub PhaseYield()
     Dim t As Double
     t = Timer
     If t - m_yieldLastTime > 0.2 Then
+        ' On Error Resume Next obalíme len okolo zápisu do bunky –
+        ' DoEvents musí ostať mimo, inak by sa chyba 18 (ESC) z neho
+        ' pohltila a runCALC by nikdy nevidel zrušenie v dlhých
+        ' Gauss-elimináciách (toto je ich jediný polling point).
         On Error Resume Next
         m_yieldTimerCell.Value = t - m_yieldStartTime
+        On Error GoTo 0
         Dim prevScr As Boolean
         prevScr = Application.ScreenUpdating
         If Not prevScr Then Application.ScreenUpdating = True
         DoEvents
         If Not prevScr Then Application.ScreenUpdating = False
-        On Error GoTo 0
         m_yieldLastTime = t
     End If
 End Sub
