@@ -23,6 +23,7 @@ Public Sub BuildShortCircuitMatrix( _
     ByVal nDifReaktory As Long, ByRef DifReaktorFrom As Variant, ByRef DifReaktorTo As Variant, _
     ByRef DifReaktorR As Variant, ByRef DifReaktorX As Variant, _
     ByVal nMotors As Long, ByRef MotorBus As Variant, ByRef MotorXk As Variant, ByRef MotorStatus As Variant, _
+    ByVal nGens As Long, ByRef GenTermBus As Variant, ByRef GenStatus As Variant, ByRef GenRa As Variant, ByRef GenXd As Variant, _
     ByRef BusNames As Variant, ByRef BusTypes As Variant, ByRef BusBaseKV As Variant, _
     ByRef Ik_input As Variant, ByVal SBase_MVA As Double, _
     ByRef IsBusIsolated As Variant, ByRef IsBranchIsolated As Variant, ByRef IsTrafoIsolated As Variant, _
@@ -103,6 +104,18 @@ Public Sub BuildShortCircuitMatrix( _
             If Abs(CDbl(MotorXk(k))) > 0.0000001 Then
                 Ys = CCreate(0, -1# / CDbl(MotorXk(k)))
                 i = MotorBus(k)
+                Ysc(i, i) = CAdd(Ysc(i, i), Ys)
+            End If
+        End If
+    Next k
+
+    ' Generátory – príspevok do skratu cez subtranzientnú impedanciu Z = R_G + j*X''d.
+    For k = 1 To nGens
+        If GenStatus(k) = 1 Then
+            i = GenTermBus(k)
+            If Not IsBusIsolated(i) And Not (GenRa(k) = 0 And GenXd(k) = 0) Then
+                Z = CCreate(CDbl(GenRa(k)), CDbl(GenXd(k)))
+                Ys = CDiv(CCreate(1, 0), Z)
                 Ysc(i, i) = CAdd(Ysc(i, i), Ys)
             End If
         End If

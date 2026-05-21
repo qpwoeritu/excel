@@ -95,6 +95,29 @@ Public Sub runCALC()
     Dim MotorB() As Double
     Dim MotorStatus() As Integer
 
+    ' Generátory (reálne dáta z listu "generatory")
+    Dim nGens As Long
+    Dim GenName() As String
+    Dim GenTermBus() As Long
+    Dim GenMode() As Integer
+    Dim GenStatus() As Integer
+    Dim GenRa() As Double, GenXs() As Double, GenXd() As Double
+    Dim GenP() As Double, GenQref() As Double, GenVref() As Double
+    Dim GenEmag() As Double, GenPint() As Double
+
+    ' Rozšírené polia pre NR (reálne uzly + fantómové PV uzly EMF generátorov)
+    Dim nBusNR As Long
+    Dim BusNamesNR() As String
+    Dim BusTypesNR() As BusType
+    Dim BusBaseKVNR() As Double
+    Dim VmagNR() As Double, VangNR() As Double
+    Dim PspecNR() As Double, QspecNR() As Double
+    Dim IsBusIsolatedNR() As Boolean
+    Dim GenPhantomIdx() As Long
+    Dim nGenBr As Long
+    Dim GenBrFrom() As Long, GenBrTo() As Long
+    Dim GenBrR() As Double, GenBrX() As Double
+
     Dim IsBusIsolated() As Boolean
     Dim IsBranchIsolated() As Boolean
     Dim IsTrafoIsolated() As Boolean
@@ -198,6 +221,9 @@ Public Sub runCALC()
     Call LoadSwitchData(nSwitches, SwitchName, SwFrom, SwTo, SwR, SwX, SwStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadCompData(nComp, CompName, CompBus, CompB, CompStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadMotorData(nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorG, MotorB, MotorStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
+    Call LoadGeneratorData(nGens, GenName, GenTermBus, GenMode, GenStatus, _
+                           GenRa, GenXs, GenXd, GenP, GenQref, GenVref, GenEmag, GenPint, _
+                           BusNames, BusBaseKV, SBase_MVA, busDict)
 
     Call FindIsolatedParts(nBuses, nBranches, FromBus, ToBus, BranchStatus, _
                            nTrafo, TrFrom, TrTo, _
@@ -236,14 +262,24 @@ Public Sub runCALC()
             End If
         Next i
 
-        Call BuildYBus(nBuses, nBranches, FromBus, ToBus, R, X, BranchStatus, Bshunt, _
+        ' Rozšírenie modelu o generátory: fantómové PV uzly pre EMF, injekcia pre PQ
+        Call ApplyGeneratorModel(nBuses, BusNames, BusTypes, BusBaseKV, _
+                                 Vmag, Vang, Pspec, Qspec, IsBusIsolated, _
+                                 nGens, GenName, GenTermBus, GenMode, GenStatus, GenRa, GenXs, _
+                                 GenP, GenQref, GenEmag, GenPint, _
+                                 nBusNR, BusNamesNR, BusTypesNR, BusBaseKVNR, _
+                                 VmagNR, VangNR, PspecNR, QspecNR, IsBusIsolatedNR, _
+                                 GenPhantomIdx, nGenBr, GenBrFrom, GenBrTo, GenBrR, GenBrX)
+
+        Call BuildYBus(nBusNR, nBranches, FromBus, ToBus, R, X, BranchStatus, Bshunt, _
                        nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
                        nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, _
                        nReaktory, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, _
                        nDifReaktory, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, _
                        nComp, CompBus, CompB, CompStatus, _
                        nMotors, MotorBus, MotorG, MotorB, MotorStatus, _
-                       BusNames, IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, _
+                       nGenBr, GenBrFrom, GenBrTo, GenBrR, GenBrX, _
+                       BusNamesNR, IsBusIsolatedNR, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, _
                        Y, G, B)
     Else
         ' Pre skraty: načítaj Ik_input zo stĺpca J listu uzly (pre slack)
@@ -265,6 +301,7 @@ Public Sub runCALC()
                                      nReaktory, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, _
                                      nDifReaktory, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, _
                                      nMotors, MotorBus, MotorXk, MotorStatus, _
+                                     nGens, GenTermBus, GenStatus, GenRa, GenXd, _
                                      BusNames, BusTypes, BusBaseKV, Ik_input, SBase_MVA, _
                                      IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, _
                                      Ysc)
@@ -288,8 +325,8 @@ Public Sub runCALC()
         ' (PhaseYield si sám krátko zapne ScreenUpdating kvôli prekresleniu.)
         Call BeginPhaseTimer(wsIdx.Range("J5"))
 
-        Call RunNRPhase(SBase_MVA, nBuses, BusNames, BusTypes, BusBaseKV, _
-                        Vmag, Vang, Pspec, Qspec, G, B, _
+        Call RunNRPhase(SBase_MVA, nBusNR, nBuses, BusNamesNR, BusTypesNR, BusBaseKVNR, _
+                        VmagNR, VangNR, PspecNR, QspecNR, G, B, _
                         nBranches, FromBus, ToBus, R, X, BranchStatus, Bshunt, _
                         nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
                         nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, _
@@ -297,8 +334,12 @@ Public Sub runCALC()
                         nDifReaktory, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, _
                         nComp, CompBus, CompB, CompStatus, _
                         nMotors, MotorBus, MotorR, MotorG, MotorB, MotorStatus, _
-                        IsBusIsolated, _
+                        IsBusIsolatedNR, _
                         wsIdx.Range("I6"))
+
+        ' Výsledky generátorov (δ, Q_gen, I, Ploss) do listu "generatory"
+        Call WriteGeneratorResults(nGens, GenName, GenTermBus, GenMode, GenStatus, GenRa, GenXs, _
+                                   GenP, GenQref, GenPhantomIdx, VmagNR, VangNR, BusBaseKV, SBase_MVA)
 
         Call WritePhaseTime(wsIdx.Range("J5"), PhaseElapsed)
         Call EndPhaseTimer

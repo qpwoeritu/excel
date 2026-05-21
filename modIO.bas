@@ -464,17 +464,26 @@ Public Sub LoadCompData( _
 End Sub
 
 ' Načítanie dát generátorov z listu "generatory"
-' B: Názov, C: PQ_Uzol, D: PV_Uzol, E: Status, L: Ra, M: P_gen, O: Xs, P: Xd''
+' B:Názov  C:Svorka(uzol)  D:Režim(PQ/EMF)  E:Status
+' L:Ra[ohm]  M:P_gen[MW]  N:Q_ref[Mvar]  O:Xs[ohm]  P:Xd''[ohm]  Q:V_ref[kV]
+'
+' Režim PQ  – generátor je pevná injekcia (P_gen, Q_ref) do svorkového uzla.
+' Režim EMF – pevné vnútorné napätie |E| za reaktanciou Ra+jXs; |E| a vnútorný
+'             činný výkon P_int sa kalibrujú z referenčného bodu (V_ref, Q_ref, P_gen).
 Public Sub LoadGeneratorData( _
     ByRef nGens As Long, _
     ByRef GenName() As String, _
-    ByRef GenBusPQ() As Long, _
-    ByRef GenBusPV() As Long, _
+    ByRef GenTermBus() As Long, _
+    ByRef GenMode() As Integer, _
     ByRef GenStatus() As Integer, _
     ByRef GenRa() As Double, _
-    ByRef GenP() As Double, _
     ByRef GenXs() As Double, _
     ByRef GenXd() As Double, _
+    ByRef GenP() As Double, _
+    ByRef GenQref() As Double, _
+    ByRef GenVref() As Double, _
+    ByRef GenEmag() As Double, _
+    ByRef GenPint() As Double, _
     ByRef BusNames() As String, _
     ByRef BusBaseKV() As Double, _
     ByVal SBase_MVA As Double, _
@@ -483,11 +492,13 @@ Public Sub LoadGeneratorData( _
     Dim ws As Worksheet
     Dim lastRow As Long
     Dim i As Long
-    Dim pqName As String, pvName As String
-    Dim idxPQ As Long, idxPV As Long
+    Dim termName As String, modeStr As String
+    Dim idxTerm As Long
     Dim Ubase As Double, Zbase As Double
     Dim stVal As Variant
     Dim data As Variant
+    Dim vref As Double, p As Double, q As Double
+    Dim Iref As Complex, Zs As Complex, Evec As Complex
 
     Set ws = GetOrCreateSheet("generatory")
 
@@ -500,23 +511,35 @@ Public Sub LoadGeneratorData( _
     nGens = lastRow - 2
 
     ReDim GenName(1 To nGens)
-    ReDim GenBusPQ(1 To nGens)
-    ReDim GenBusPV(1 To nGens)
+    ReDim GenTermBus(1 To nGens)
+    ReDim GenMode(1 To nGens)
     ReDim GenStatus(1 To nGens)
     ReDim GenRa(1 To nGens)
-    ReDim GenP(1 To nGens)
     ReDim GenXs(1 To nGens)
     ReDim GenXd(1 To nGens)
+    ReDim GenP(1 To nGens)
+    ReDim GenQref(1 To nGens)
+    ReDim GenVref(1 To nGens)
+    ReDim GenEmag(1 To nGens)
+    ReDim GenPint(1 To nGens)
 
-    ' bulk read B..P (1=B name, 2=C pq, 3=D pv, 4=E status, 11=L Ra, 12=M P, 14=O Xs, 15=P Xd'')
-    data = ws.Range(ws.Cells(3, 2), ws.Cells(lastRow, 16)).Value
+    ' bulk read B..Q (1=B meno, 2=C svorka, 3=D režim, 4=E status,
+    ' 11=L Ra, 12=M P_gen, 13=N Q_ref, 14=O Xs, 15=P Xd'', 16=Q V_ref)
+    data = ws.Range(ws.Cells(3, 2), ws.Cells(lastRow, 17)).Value
 
     For i = 1 To nGens
         GenName(i) = CStr(data(i, 1))                       ' B
-        pqName = CStr(data(i, 2))                           ' C
-        pvName = CStr(data(i, 3))                           ' D
+        termName = CStr(data(i, 2))                         ' C
 
-        ' Status E (5) -> col 4
+        ' Režim D -> PQ (default) alebo EMF
+        modeStr = UCase$(Trim$(CStr(data(i, 3))))
+        If modeStr = "EMF" Then
+            GenMode(i) = 1
+        Else
+            GenMode(i) = 0
+        End If
+
+        ' Status E
         stVal = data(i, 4)
         If IsNumeric(stVal) Then
             GenStatus(i) = CInt(stVal)
@@ -524,92 +547,252 @@ Public Sub LoadGeneratorData( _
             GenStatus(i) = 0
         End If
 
-        idxPQ = GetBusIndexD(pqName, busDict)
-        If idxPQ = 0 Then
-            Err.Raise vbObjectError + 12, , "PQ Uzol '" & pqName & "' v liste 'generatory' neexistuje."
+        idxTerm = GetBusIndexD(termName, busDict)
+        If idxTerm = 0 Then
+            Err.Raise vbObjectError + 12, , "Uzol svorky '" & termName & _
+                "' v liste 'generatory', riadok " & (i + 2) & " neexistuje."
         End If
-        GenBusPQ(i) = idxPQ
+        GenTermBus(i) = idxTerm
 
-        idxPV = GetBusIndexD(pvName, busDict)
-        If idxPV = 0 Then
-            Err.Raise vbObjectError + 13, , "PV Uzol '" & pvName & "' v liste 'generatory' neexistuje."
-        End If
-        GenBusPV(i) = idxPV
-
-        ' P_gen [MW] -> M (13) -> col 12
-        If SBase_MVA <> 0 Then
-            GenP(i) = ParseDouble(data(i, 12)) / SBase_MVA
-        Else
-            GenP(i) = 0
-        End If
-
-        ' Ra [ohm] -> L (12) -> col 11, Xs [ohm] -> O (15) -> col 14, Xd'' [ohm] -> P (16) -> col 15
-        Ubase = BusBaseKV(idxPQ)
-        If SBase_MVA <> 0 Then
+        ' Bázy podľa svorkového uzla
+        Ubase = BusBaseKV(idxTerm)
+        If SBase_MVA <> 0# And Ubase <> 0# Then
             Zbase = (Ubase * Ubase) / SBase_MVA
         Else
-            Zbase = 1
+            Zbase = 1#
         End If
 
-        If Zbase <> 0 Then
-            GenRa(i) = ParseDouble(data(i, 11)) / Zbase
-            GenXs(i) = ParseDouble(data(i, 14)) / Zbase
-            GenXd(i) = ParseDouble(data(i, 15)) / Zbase
+        ' Prepočet do p.u.
+        If SBase_MVA <> 0# Then
+            GenP(i) = ParseDouble(data(i, 12)) / SBase_MVA      ' M
+            GenQref(i) = ParseDouble(data(i, 13)) / SBase_MVA   ' N
+        Else
+            GenP(i) = 0#
+            GenQref(i) = 0#
+        End If
+
+        If Ubase <> 0# Then
+            GenVref(i) = ParseDouble(data(i, 16)) / Ubase       ' Q
+        Else
+            GenVref(i) = 0#
+        End If
+
+        If Zbase <> 0# Then
+            GenRa(i) = ParseDouble(data(i, 11)) / Zbase         ' L
+            GenXs(i) = ParseDouble(data(i, 14)) / Zbase         ' O
+            GenXd(i) = ParseDouble(data(i, 15)) / Zbase         ' P
+        Else
+            GenRa(i) = 0#
+            GenXs(i) = 0#
+            GenXd(i) = 0#
+        End If
+
+        ' Kalibrácia |E| a P_int pre EMF režim z referenčného bodu.
+        ' Vzťažná sústava V_ref∠0:  I = conj(S/V) = (p - j q) / v_ref
+        '   E     = v_ref + (Ra + jXs)·I    -> |E| ostáva konštantné (budenie)
+        '   P_int = p + |I|²·Ra             -> vnútorný činný výkon (konšt. regulátor)
+        GenEmag(i) = 0#
+        GenPint(i) = 0#
+        If GenMode(i) = 1 And GenStatus(i) = 1 Then
+            If GenVref(i) <= 0# Then
+                Err.Raise vbObjectError + 14, , "EMF generátor '" & GenName(i) & _
+                    "' (riadok " & (i + 2) & "): chýba kladné V_ref [kV] v stĺpci Q."
+            End If
+            If GenXs(i) <= 0# Then
+                Err.Raise vbObjectError + 14, , "EMF generátor '" & GenName(i) & _
+                    "' (riadok " & (i + 2) & "): Xs musí byť > 0 v stĺpci O."
+            End If
+            vref = GenVref(i)
+            p = GenP(i)
+            q = GenQref(i)
+            Iref = CCreate(p / vref, -q / vref)
+            Zs = CCreate(GenRa(i), GenXs(i))
+            Evec = CAdd(CCreate(vref, 0#), CMul(Zs, Iref))
+            GenEmag(i) = CAbs(Evec)
+            GenPint(i) = p + (Iref.Re * Iref.Re + Iref.Im * Iref.Im) * GenRa(i)
         End If
     Next i
 End Sub
 
-' Zápis výsledkov generátorov (Load Flow) - Q do stĺpca N
+' Rozšírenie siete o generátory pre load-flow.
+' K reálnym uzlom (1..nBuses) pridá fantómové PV uzly pre aktívne EMF generátory
+' a vytvorí zoznam generátorových vetiev (Ra+jXs: fantóm -> svorka).
+' PQ generátory sa premietnu ako injekcia P_gen+jQ_ref do svorkového uzla.
+' Izolovanosť fantómu = izolovanosť jeho svorky (BFS topológie sa nemení).
+Public Sub ApplyGeneratorModel( _
+    ByVal nBuses As Long, _
+    ByRef BusNames() As String, ByRef BusTypes() As BusType, ByRef BusBaseKV() As Double, _
+    ByRef Vmag() As Double, ByRef Vang() As Double, ByRef Pspec() As Double, ByRef Qspec() As Double, _
+    ByRef IsBusIsolated() As Boolean, _
+    ByVal nGens As Long, ByRef GenName() As String, ByRef GenTermBus() As Long, ByRef GenMode() As Integer, _
+    ByRef GenStatus() As Integer, ByRef GenRa() As Double, ByRef GenXs() As Double, _
+    ByRef GenP() As Double, ByRef GenQref() As Double, ByRef GenEmag() As Double, ByRef GenPint() As Double, _
+    ByRef nBusNR As Long, _
+    ByRef BusNamesNR() As String, ByRef BusTypesNR() As BusType, ByRef BusBaseKVNR() As Double, _
+    ByRef VmagNR() As Double, ByRef VangNR() As Double, ByRef PspecNR() As Double, ByRef QspecNR() As Double, _
+    ByRef IsBusIsolatedNR() As Boolean, _
+    ByRef GenPhantomIdx() As Long, _
+    ByRef nGenBr As Long, ByRef GenBrFrom() As Long, ByRef GenBrTo() As Long, _
+    ByRef GenBrR() As Double, ByRef GenBrX() As Double)
+
+    Dim i As Long, g As Long, nPhantom As Long, ph As Long, term As Long
+
+    ' Počet fantómov = počet aktívnych EMF generátorov
+    nPhantom = 0
+    For g = 1 To nGens
+        If GenStatus(g) = 1 And GenMode(g) = 1 Then nPhantom = nPhantom + 1
+    Next g
+
+    nBusNR = nBuses + nPhantom
+
+    ReDim BusNamesNR(1 To nBusNR)
+    ReDim BusTypesNR(1 To nBusNR)
+    ReDim BusBaseKVNR(1 To nBusNR)
+    ReDim VmagNR(1 To nBusNR)
+    ReDim VangNR(1 To nBusNR)
+    ReDim PspecNR(1 To nBusNR)
+    ReDim QspecNR(1 To nBusNR)
+    ReDim IsBusIsolatedNR(1 To nBusNR)
+
+    ' Kópia reálnych uzlov
+    For i = 1 To nBuses
+        BusNamesNR(i) = BusNames(i)
+        BusTypesNR(i) = BusTypes(i)
+        BusBaseKVNR(i) = BusBaseKV(i)
+        VmagNR(i) = Vmag(i)
+        VangNR(i) = Vang(i)
+        PspecNR(i) = Pspec(i)
+        QspecNR(i) = Qspec(i)
+        IsBusIsolatedNR(i) = IsBusIsolated(i)
+    Next i
+
+    If nGens > 0 Then
+        ReDim GenPhantomIdx(1 To nGens)
+        For g = 1 To nGens
+            GenPhantomIdx(g) = 0
+        Next g
+    End If
+
+    If nPhantom > 0 Then
+        ReDim GenBrFrom(1 To nPhantom)
+        ReDim GenBrTo(1 To nPhantom)
+        ReDim GenBrR(1 To nPhantom)
+        ReDim GenBrX(1 To nPhantom)
+    End If
+
+    nGenBr = 0
+    ph = nBuses
+    For g = 1 To nGens
+        If GenStatus(g) = 1 Then
+            term = GenTermBus(g)
+            If GenMode(g) = 0 Then
+                ' PQ režim – injekcia generátora do svorky (izolovanú svorku nerozbíjame)
+                If Not IsBusIsolated(term) Then
+                    PspecNR(term) = PspecNR(term) + GenP(g)
+                    QspecNR(term) = QspecNR(term) + GenQref(g)
+                End If
+            Else
+                ' EMF režim – fantómový PV uzol + vetva Ra+jXs
+                ph = ph + 1
+                GenPhantomIdx(g) = ph
+                BusNamesNR(ph) = GenName(g) & " (E)"
+                BusBaseKVNR(ph) = BusBaseKV(term)
+                VangNR(ph) = 0#
+                QspecNR(ph) = 0#
+                If IsBusIsolated(term) Then
+                    ' izolovaná svorka – fantóm ostáva samostatný izolovaný uzol
+                    BusTypesNR(ph) = btPQ
+                    VmagNR(ph) = 0#
+                    PspecNR(ph) = 0#
+                    IsBusIsolatedNR(ph) = True
+                Else
+                    BusTypesNR(ph) = btPV
+                    VmagNR(ph) = GenEmag(g)
+                    PspecNR(ph) = GenPint(g)
+                    IsBusIsolatedNR(ph) = False
+                    nGenBr = nGenBr + 1
+                    GenBrFrom(nGenBr) = ph
+                    GenBrTo(nGenBr) = term
+                    GenBrR(nGenBr) = GenRa(g)
+                    GenBrX(nGenBr) = GenXs(g)
+                End If
+            End If
+        End If
+    Next g
+End Sub
+
+' Zápis výsledkov generátorov (load-flow) do listu "generatory":
+'   R (18): δ [deg]      S (19): Q_gen [Mvar]
+'   AC (29): I [A]       AD (30): Ploss [kW]
+' VmagNR/VangNR sú rozšírené polia z RunNRPhase (reálne uzly + fantómy EMF).
 Public Sub WriteGeneratorResults( _
     ByVal nGens As Long, _
-    ByRef GenBusPQ() As Long, _
-    ByRef GenBusPV() As Long, _
-    ByRef GenXs() As Double, _
-    ByRef GenRa() As Double, _
-    ByRef GenStatus() As Integer, _
-    ByRef Vmag() As Double, _
-    ByRef Vang() As Double, _
-    ByVal SBase_MVA As Double)
+    ByRef GenName() As String, ByRef GenTermBus() As Long, ByRef GenMode() As Integer, _
+    ByRef GenStatus() As Integer, ByRef GenRa() As Double, ByRef GenXs() As Double, _
+    ByRef GenP() As Double, ByRef GenQref() As Double, _
+    ByRef GenPhantomIdx() As Long, _
+    ByRef VmagNR() As Double, ByRef VangNR() As Double, _
+    ByRef BusBaseKV() As Double, ByVal SBase_MVA As Double)
 
     Dim ws As Worksheet
-    Dim i As Long
-    Dim idxPQ As Long, idxPV As Long
-    Dim Vi As Complex, Vj As Complex
-    Dim Zs As Complex, I_pu As Complex, S_pu As Complex
-    Dim Q_mvar As Double
-    
+    Dim i As Long, term As Long, ph As Long
+    Dim Vt As Complex, Evec As Complex, Zs As Complex, Ivec As Complex, St As Complex
+    Dim Ubase As Double, Ibase_A As Double, Imag_pu As Double
+    Dim Q_mvar As Double, delta_deg As Double, I_A As Double, Ploss_kW As Double
+
+    If nGens < 1 Then Exit Sub
+
     Set ws = GetOrCreateSheet("generatory")
-    ' Hlavička
-    ws.Cells(2, 14).Value = "Q_gen [Mvar]" ' N (14)
-    
+    ws.Cells(2, 18).Value = "δ [deg]"
+    ws.Cells(2, 19).Value = "Q_gen [Mvar]"
+    ws.Cells(2, 29).Value = "I [A]"
+    ws.Cells(2, 30).Value = "Ploss [kW]"
+
     For i = 1 To nGens
         If GenStatus(i) = 1 Then
-            idxPQ = GenBusPQ(i)
-            idxPV = GenBusPV(i)
-            
-            ' Tok z PV do PQ? Nie, Q_gen je injekcia do PQ uzla (alebo výroba generátora).
-            ' Q_gen sa meria na svorkách (PQ uzol).
-            ' Prúd I = (V_pv - V_pq) / (Ra + jXs)
-            ' S_pq = V_pq * conj(I) ... to je príkon do PQ uzla z vetvy.
-            ' Ak je S_pq kladné, tak to "tečie do uzla".
-            
-            Vi = CFromPolar(Vmag(idxPV), Vang(idxPV) * RAD2DEG)
-            Vj = CFromPolar(Vmag(idxPQ), Vang(idxPQ) * RAD2DEG)
+            term = GenTermBus(i)
+            Ubase = BusBaseKV(term)
+            If Ubase <> 0# Then
+                Ibase_A = (SBase_MVA * 1000#) / (Sqr(3) * Ubase)
+            Else
+                Ibase_A = 0#
+            End If
+
+            Vt = CFromPolarRad(VmagNR(term), VangNR(term))
             Zs = CCreate(GenRa(i), GenXs(i))
-            
-            ' I = (Vi - Vj) / Zs
-            I_pu = CDiv(CSub(Vi, Vj), Zs)
-            
-            ' Výkon dodávaný do siete (na svorkách j)
-            ' S_gen = Vj * conj(I)
-            ' (Pozor na znamienko: I tečie z PV do PQ. Takže I vstupuje do PQ. S = U*I*)
-            S_pu = CMul(Vj, CConj(I_pu))
-            
-            Q_mvar = S_pu.Im * SBase_MVA
-            
-            ws.Cells(i + 2, 14).Value = Round(Q_mvar, 2)
+
+            If GenMode(i) = 1 Then
+                ' EMF – prúd vetvou fantóm -> svorka, výkon na svorke
+                ph = GenPhantomIdx(i)
+                Evec = CFromPolarRad(VmagNR(ph), VangNR(ph))
+                Ivec = CDiv(CSub(Evec, Vt), Zs)
+                St = CMul(Vt, CConj(Ivec))
+                Q_mvar = St.Im * SBase_MVA
+                delta_deg = (VangNR(ph) - VangNR(term)) * RAD2DEG
+            Else
+                ' PQ – injekcia P_gen + jQ_ref na svorke, I = conj(S/V)
+                St = CCreate(GenP(i), GenQref(i))
+                Ivec = CConj(CDiv(St, Vt))
+                Q_mvar = GenQref(i) * SBase_MVA
+                ' Notačný vnútorný uhol: E = V + (Ra+jXs)·I
+                Evec = CAdd(Vt, CMul(Zs, Ivec))
+                delta_deg = CArgDeg(Evec) - CArgDeg(Vt)
+            End If
+
+            Imag_pu = CAbs(Ivec)
+            I_A = Imag_pu * Ibase_A
+            ' Ploss [p.u.] = |I|²·Ra  ->  kW
+            Ploss_kW = Imag_pu * Imag_pu * GenRa(i) * SBase_MVA * 1000#
+
+            ws.Cells(i + 2, 18).Value = Round(delta_deg, 2)
+            ws.Cells(i + 2, 19).Value = Round(Q_mvar, 2)
+            ws.Cells(i + 2, 29).Value = Round(I_A, 2)
+            ws.Cells(i + 2, 30).Value = Round(Ploss_kW, 2)
         Else
-            ws.Cells(i + 2, 14).Value = 0
+            ws.Cells(i + 2, 18).Value = 0
+            ws.Cells(i + 2, 19).Value = 0
+            ws.Cells(i + 2, 29).Value = 0
+            ws.Cells(i + 2, 30).Value = 0
         End If
     Next i
 End Sub
@@ -1085,16 +1268,14 @@ End Sub
 Public Sub WriteFinalVoltagesToUzly( _
     ByRef Vmag() As Double, _
     ByRef Vang() As Double, _
-    ByRef BusBaseKV() As Double)
+    ByRef BusBaseKV() As Double, _
+    ByVal nBuses As Long)
 
     Dim ws As Worksheet
     Dim i As Long
-    Dim nBuses As Long
-    
+
     Set ws = ThisWorkbook.Worksheets("uzly")
-    
-    nBuses = UBound(Vmag)
-    
+
     ' hlavičky výsledkov (riadok 2)
     ws.Cells(2, 8).Value = "|V| výp. [kV]"
     ws.Cells(2, 9).Value = "? výp. [deg]"
