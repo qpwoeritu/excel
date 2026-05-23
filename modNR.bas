@@ -298,7 +298,7 @@ End Sub
 ' maxIter a epsLimit číta z index!B3, B4 (ako predtým).
 '--------------------------------------
 Public Sub RunNRPhase( _
-    ByVal SBase_MVA As Double, ByVal nBuses As Long, ByRef BusNames() As String, _
+    ByVal SBase_MVA As Double, ByVal nBuses As Long, ByVal nBusReal As Long, ByRef BusNames() As String, _
     ByRef BusTypes() As BusType, ByRef BusBaseKV() As Double, _
     ByRef Vmag() As Double, ByRef Vang() As Double, ByRef Pspec() As Double, ByRef Qspec() As Double, _
     ByRef G() As Double, ByRef B() As Double, _
@@ -450,13 +450,13 @@ Public Sub RunNRPhase( _
 SkipNR:
 
     ' Post-NR zápisy na listy
-    Call WriteFinalVoltagesToUzly(Vmag, Vang, BusBaseKV)
+    Call WriteFinalVoltagesToUzly(Vmag, Vang, BusBaseKV, nBusReal)
 
     ' Pre izolované uzly prepíšeme stĺpce H/I na "izolovane"/"-"
     ' (WriteFinalVoltagesToUzly inak pre nich zapíše 0; report sheet sa už vyplnil v I3 fáze).
     Dim wsUz As Worksheet
     Set wsUz = ThisWorkbook.Worksheets("uzly")
-    For i = 1 To nBuses
+    For i = 1 To nBusReal
         If IsBusIsolated(i) Then
             wsUz.Cells(2 + i, 8).Value = "izolovane"
             wsUz.Cells(2 + i, 9).Value = "-"
@@ -506,7 +506,7 @@ SkipNR:
         ReDim Pcalc(1 To nBuses)
         ReDim Qcalc(1 To nBuses)
     End If
-    Call WriteNodeThroughput(nBuses, BusNames, BusBaseKV, SBase_MVA, _
+    Call WriteNodeThroughput(nBusReal, BusNames, BusBaseKV, SBase_MVA, _
                              nBranches, FromBus, ToBus, R, X, BranchStatus, _
                              nTrafo, TrFrom, TrTo, TrR, TrX, TrRatio, TrG, TrB, _
                              nReaktory, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, _

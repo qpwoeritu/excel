@@ -9,6 +9,7 @@ Public Sub BuildYBus(ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBu
                      ByVal nDifReaktory As Long, ByRef DifReaktorFrom() As Long, ByRef DifReaktorTo() As Long, ByRef DifReaktorR() As Double, ByRef DifReaktorX() As Double, _
                      ByVal nComp As Long, ByRef CompBus() As Long, ByRef CompB() As Double, ByRef CompStatus() As Integer, _
                      ByVal nMotors As Long, ByRef MotorBus() As Long, ByRef MotorG() As Double, ByRef MotorB() As Double, ByRef MotorStatus() As Integer, _
+                     ByVal nGenBr As Long, ByRef GenBrFrom() As Long, ByRef GenBrTo() As Long, ByRef GenBrR() As Double, ByRef GenBrX() As Double, _
                      ByRef BusNames() As String, ByRef IsBusIsolated() As Boolean, ByRef IsBranchIsolated() As Boolean, ByRef IsTrafoIsolated() As Boolean, ByRef IsReaktorIsolated() As Boolean, ByRef IsDifReaktorIsolated() As Boolean, ByRef IsSwitchIsolated() As Boolean, _
                      ByRef Y() As Complex, ByRef G() As Double, ByRef B() As Double)
     
@@ -110,7 +111,17 @@ Public Sub BuildYBus(ByVal nBuses As Long, ByVal nBranches As Long, ByRef FromBu
             Y(i, i) = CAdd(Y(i, i), CCreate(MotorG(k), MotorB(k)))
         End If
     Next k
-    
+
+    ' Generátorové vetvy (EMF model: fantóm -- Ra+jXs --> svorka)
+    For k = 1 To nGenBr
+        If Not (GenBrR(k) = 0 And GenBrX(k) = 0) Then
+            Z = CCreate(GenBrR(k), GenBrX(k)): Ys = CDiv(CCreate(1, 0), Z)
+            i = GenBrFrom(k): J = GenBrTo(k)
+            Y(i, i) = CAdd(Y(i, i), Ys): Y(J, J) = CAdd(Y(J, J), Ys)
+            Y(i, J) = CSub(Y(i, J), Ys): Y(J, i) = CSub(Y(J, i), Ys)
+        End If
+    Next k
+
     ' Izolované uzly (aby matica nebola singulárna)
     For i = 1 To nBuses
         If IsBusIsolated(i) Then Y(i, i) = CCreate(1, 0)
