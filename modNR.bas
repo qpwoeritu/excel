@@ -530,14 +530,13 @@ Private Sub WriteNodeThroughput( _
     ByRef Vmag() As Double, ByRef Vang() As Double, ByRef Pcalc() As Double, ByRef Qcalc() As Double)
 
     Dim i As Long, k As Long
-    Dim SumP() As Double, SumQ() As Double, SumI() As Double
+    Dim SumP() As Double, SumQ() As Double
     Dim ws As Worksheet
 
-    ReDim SumP(1 To nBuses), SumQ(1 To nBuses), SumI(1 To nBuses)
+    ReDim SumP(1 To nBuses), SumQ(1 To nBuses)
 
     Dim Vi As Complex, Vj As Complex, Z As Complex, Ys As Complex
     Dim I_pu As Complex, S_pu As Complex
-    Dim I_abs_pu As Double
     Dim P_flow As Double, Q_flow As Double
     Dim Ubase As Double, Ibase_A As Double
 
@@ -547,19 +546,15 @@ Private Sub WriteNodeThroughput( _
             Call CalcBranchFlow(k, FromBus(k), ToBus(k), R(k), X(k), Vmag, Vang, Vi, Vj, Z, Ys, I_pu, S_pu)
 
             P_flow = -S_pu.Re: Q_flow = -S_pu.Im
-            I_abs_pu = CAbs(I_pu)
             If P_flow > 0 Then SumP(FromBus(k)) = SumP(FromBus(k)) + P_flow
             If Q_flow > 0 Then SumQ(FromBus(k)) = SumQ(FromBus(k)) + Q_flow
-            SumI(FromBus(k)) = SumI(FromBus(k)) + I_abs_pu
 
             Dim I_ji As Complex, S_ji As Complex
             I_ji = CCreate(-I_pu.Re, -I_pu.Im)
             S_ji = CMul(Vj, CConj(I_ji))
             P_flow = -S_ji.Re: Q_flow = -S_ji.Im
-            I_abs_pu = CAbs(I_ji)
             If P_flow > 0 Then SumP(ToBus(k)) = SumP(ToBus(k)) + P_flow
             If Q_flow > 0 Then SumQ(ToBus(k)) = SumQ(ToBus(k)) + Q_flow
-            SumI(ToBus(k)) = SumI(ToBus(k)) + I_abs_pu
         End If
     Next k
 
@@ -569,10 +564,8 @@ Private Sub WriteNodeThroughput( _
                            Vi, Vj, I_pu, S_pu)
 
         P_flow = -S_pu.Re: Q_flow = -S_pu.Im
-        I_abs_pu = CAbs(I_pu)
         If P_flow > 0 Then SumP(TrFrom(k)) = SumP(TrFrom(k)) + P_flow
         If Q_flow > 0 Then SumQ(TrFrom(k)) = SumQ(TrFrom(k)) + Q_flow
-        SumI(TrFrom(k)) = SumI(TrFrom(k)) + I_abs_pu
 
         Dim Zs As Complex, ys_t As Complex, Yseries_a As Complex
         Zs = CCreate(TrR(k), TrX(k)): ys_t = CDiv(CCreate(1, 0), Zs)
@@ -585,10 +578,8 @@ Private Sub WriteNodeThroughput( _
         S_sec = CMul(Vj, CConj(I_sec))
 
         P_flow = -S_sec.Re: Q_flow = -S_sec.Im
-        I_abs_pu = CAbs(I_sec)
         If P_flow > 0 Then SumP(TrTo(k)) = SumP(TrTo(k)) + P_flow
         If Q_flow > 0 Then SumQ(TrTo(k)) = SumQ(TrTo(k)) + Q_flow
-        SumI(TrTo(k)) = SumI(TrTo(k)) + I_abs_pu
     Next k
 
     ' 3. Reaktory
@@ -596,18 +587,14 @@ Private Sub WriteNodeThroughput( _
         Call CalcBranchFlow(k, ReaktorFrom(k), ReaktorTo(k), ReaktorR(k), ReaktorX(k), Vmag, Vang, Vi, Vj, Z, Ys, I_pu, S_pu)
 
         P_flow = -S_pu.Re: Q_flow = -S_pu.Im
-        I_abs_pu = CAbs(I_pu)
         If P_flow > 0 Then SumP(ReaktorFrom(k)) = SumP(ReaktorFrom(k)) + P_flow
         If Q_flow > 0 Then SumQ(ReaktorFrom(k)) = SumQ(ReaktorFrom(k)) + Q_flow
-        SumI(ReaktorFrom(k)) = SumI(ReaktorFrom(k)) + I_abs_pu
 
         I_ji = CCreate(-I_pu.Re, -I_pu.Im)
         S_ji = CMul(Vj, CConj(I_ji))
         P_flow = -S_ji.Re: Q_flow = -S_ji.Im
-        I_abs_pu = CAbs(I_ji)
         If P_flow > 0 Then SumP(ReaktorTo(k)) = SumP(ReaktorTo(k)) + P_flow
         If Q_flow > 0 Then SumQ(ReaktorTo(k)) = SumQ(ReaktorTo(k)) + Q_flow
-        SumI(ReaktorTo(k)) = SumI(ReaktorTo(k)) + I_abs_pu
     Next k
 
     ' 4. Dif Reaktory
@@ -615,18 +602,14 @@ Private Sub WriteNodeThroughput( _
         Call CalcBranchFlow(k, DifReaktorFrom(k), DifReaktorTo(k), DifReaktorR(k), DifReaktorX(k), Vmag, Vang, Vi, Vj, Z, Ys, I_pu, S_pu)
 
         P_flow = -S_pu.Re: Q_flow = -S_pu.Im
-        I_abs_pu = CAbs(I_pu)
         If P_flow > 0 Then SumP(DifReaktorFrom(k)) = SumP(DifReaktorFrom(k)) + P_flow
         If Q_flow > 0 Then SumQ(DifReaktorFrom(k)) = SumQ(DifReaktorFrom(k)) + Q_flow
-        SumI(DifReaktorFrom(k)) = SumI(DifReaktorFrom(k)) + I_abs_pu
 
         I_ji = CCreate(-I_pu.Re, -I_pu.Im)
         S_ji = CMul(Vj, CConj(I_ji))
         P_flow = -S_ji.Re: Q_flow = -S_ji.Im
-        I_abs_pu = CAbs(I_ji)
         If P_flow > 0 Then SumP(DifReaktorTo(k)) = SumP(DifReaktorTo(k)) + P_flow
         If Q_flow > 0 Then SumQ(DifReaktorTo(k)) = SumQ(DifReaktorTo(k)) + Q_flow
-        SumI(DifReaktorTo(k)) = SumI(DifReaktorTo(k)) + I_abs_pu
     Next k
 
     ' 5. Kompenzácia (Shunt)
@@ -635,13 +618,8 @@ Private Sub WriteNodeThroughput( _
             i = CompBus(k)
             Dim V_sq As Double
             V_sq = Vmag(i) * Vmag(i)
-            P_flow = 0
             Q_flow = V_sq * CompB(k)
-            I_abs_pu = Vmag(i) * Abs(CompB(k))
-
-            If P_flow > 0 Then SumP(i) = SumP(i) + P_flow
             If Q_flow > 0 Then SumQ(i) = SumQ(i) + Q_flow
-            SumI(i) = SumI(i) + I_abs_pu
         End If
     Next k
 
@@ -652,11 +630,8 @@ Private Sub WriteNodeThroughput( _
             V_sq = Vmag(i) * Vmag(i)
             P_flow = -V_sq * MotorG(k)
             Q_flow = V_sq * MotorB(k)
-            I_abs_pu = Vmag(i) * Sqr(MotorG(k) * MotorG(k) + MotorB(k) * MotorB(k))
-
             If P_flow > 0 Then SumP(i) = SumP(i) + P_flow
             If Q_flow > 0 Then SumQ(i) = SumQ(i) + Q_flow
-            SumI(i) = SumI(i) + I_abs_pu
         End If
     Next k
 
@@ -664,11 +639,6 @@ Private Sub WriteNodeThroughput( _
     For i = 1 To nBuses
         If Pcalc(i) > 0 Then SumP(i) = SumP(i) + Pcalc(i)
         If Qcalc(i) > 0 Then SumQ(i) = SumQ(i) + Qcalc(i)
-
-        If Vmag(i) > 0.0000001 Then
-            I_abs_pu = Sqr(Pcalc(i) * Pcalc(i) + Qcalc(i) * Qcalc(i)) / Vmag(i)
-            SumI(i) = SumI(i) + I_abs_pu
-        End If
     Next i
 
     Set ws = ThisWorkbook.Worksheets("uzly")
@@ -682,12 +652,12 @@ Private Sub WriteNodeThroughput( _
         Q_real = SumQ(i) * SBase_MVA
 
         Ubase = BusBaseKV(i)
-        If Ubase <> 0 Then
+        If Ubase <> 0 And Vmag(i) > 0.0000001 Then
             Ibase_A = (SBase_MVA * 1000#) / (Sqr(3) * Ubase)
+            I_real = Sqr(SumP(i) * SumP(i) + SumQ(i) * SumQ(i)) / Vmag(i) * Ibase_A
         Else
-            Ibase_A = 0
+            I_real = 0
         End If
-        I_real = SumI(i) * Ibase_A
 
         ws.Cells(2 + i, 11).Value = Round(P_real, 2)
         ws.Cells(2 + i, 12).Value = Round(Q_real, 2)
