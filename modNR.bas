@@ -508,6 +508,7 @@ SkipNR:
     End If
     Call WriteNodeThroughput(nBusReal, BusNames, BusBaseKV, SBase_MVA, _
                              nBranches, FromBus, ToBus, R, X, BranchStatus, _
+                             nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
                              nTrafo, TrFrom, TrTo, TrR, TrX, TrRatio, TrG, TrB, _
                              nReaktory, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, _
                              nDifReaktory, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, _
@@ -522,6 +523,7 @@ End Sub
 Private Sub WriteNodeThroughput( _
     ByVal nBuses As Long, ByRef BusNames() As String, ByRef BusBaseKV() As Double, ByVal SBase_MVA As Double, _
     ByVal nBranches As Long, ByRef FromBus() As Long, ByRef ToBus() As Long, ByRef R() As Double, ByRef X() As Double, ByRef BranchStatus() As Integer, _
+    ByVal nSwitches As Long, ByRef SwFrom() As Long, ByRef SwTo() As Long, ByRef SwR() As Double, ByRef SwX() As Double, ByRef SwStatus() As Integer, _
     ByVal nTrafo As Long, ByRef TrFrom() As Long, ByRef TrTo() As Long, ByRef TrR() As Double, ByRef TrX() As Double, ByRef TrRatio() As Double, ByRef TrG() As Double, ByRef TrB() As Double, _
     ByVal nReaktory As Long, ByRef ReaktorFrom() As Long, ByRef ReaktorTo() As Long, ByRef ReaktorR() As Double, ByRef ReaktorX() As Double, _
     ByVal nDifReaktory As Long, ByRef DifReaktorFrom() As Long, ByRef DifReaktorTo() As Long, ByRef DifReaktorR() As Double, ByRef DifReaktorX() As Double, _
@@ -558,7 +560,26 @@ Private Sub WriteNodeThroughput( _
         End If
     Next k
 
-    ' 2. Trafá
+    ' 2. Spínače (len s nenulovou impedanciou – ideálne Z=0 nie sú v Y-bus)
+    For k = 1 To nSwitches
+        If SwStatus(k) > 0 Then
+            If Abs(SwR(k)) > 0.000000001 Or Abs(SwX(k)) > 0.000000001 Then
+                Call CalcBranchFlow(k, SwFrom(k), SwTo(k), SwR(k), SwX(k), Vmag, Vang, Vi, Vj, Z, Ys, I_pu, S_pu)
+
+                P_flow = -S_pu.Re: Q_flow = -S_pu.Im
+                If P_flow > 0 Then SumP(SwFrom(k)) = SumP(SwFrom(k)) + P_flow
+                If Q_flow > 0 Then SumQ(SwFrom(k)) = SumQ(SwFrom(k)) + Q_flow
+
+                I_ji = CCreate(-I_pu.Re, -I_pu.Im)
+                S_ji = CMul(Vj, CConj(I_ji))
+                P_flow = -S_ji.Re: Q_flow = -S_ji.Im
+                If P_flow > 0 Then SumP(SwTo(k)) = SumP(SwTo(k)) + P_flow
+                If Q_flow > 0 Then SumQ(SwTo(k)) = SumQ(SwTo(k)) + Q_flow
+            End If
+        End If
+    Next k
+
+    ' 3. Trafá
     For k = 1 To nTrafo
         Call CalcTrafoFlow(k, TrFrom(k), TrTo(k), TrR(k), TrX(k), TrRatio(k), TrG(k), TrB(k), Vmag, Vang, _
                            Vi, Vj, I_pu, S_pu)
@@ -582,7 +603,7 @@ Private Sub WriteNodeThroughput( _
         If Q_flow > 0 Then SumQ(TrTo(k)) = SumQ(TrTo(k)) + Q_flow
     Next k
 
-    ' 3. Reaktory
+    ' 4. Reaktory
     For k = 1 To nReaktory
         Call CalcBranchFlow(k, ReaktorFrom(k), ReaktorTo(k), ReaktorR(k), ReaktorX(k), Vmag, Vang, Vi, Vj, Z, Ys, I_pu, S_pu)
 
@@ -597,7 +618,7 @@ Private Sub WriteNodeThroughput( _
         If Q_flow > 0 Then SumQ(ReaktorTo(k)) = SumQ(ReaktorTo(k)) + Q_flow
     Next k
 
-    ' 4. Dif Reaktory
+    ' 5. Dif Reaktory
     For k = 1 To nDifReaktory
         Call CalcBranchFlow(k, DifReaktorFrom(k), DifReaktorTo(k), DifReaktorR(k), DifReaktorX(k), Vmag, Vang, Vi, Vj, Z, Ys, I_pu, S_pu)
 
@@ -612,7 +633,7 @@ Private Sub WriteNodeThroughput( _
         If Q_flow > 0 Then SumQ(DifReaktorTo(k)) = SumQ(DifReaktorTo(k)) + Q_flow
     Next k
 
-    ' 5. Kompenzácia (Shunt)
+    ' 6. Kompenzácia (Shunt)
     For k = 1 To nComp
         If CompStatus(k) = 1 Then
             i = CompBus(k)
@@ -623,7 +644,7 @@ Private Sub WriteNodeThroughput( _
         End If
     Next k
 
-    ' 6. Motory (Shunt)
+    ' 7. Motory (Shunt)
     For k = 1 To nMotors
         If MotorStatus(k) = 1 Then
             i = MotorBus(k)
@@ -635,7 +656,7 @@ Private Sub WriteNodeThroughput( _
         End If
     Next k
 
-    ' 7. Injekcia do uzla (Generátory / Odbery)
+    ' 8. Injekcia do uzla (Generátory / Odbery)
     For i = 1 To nBuses
         If Pcalc(i) > 0 Then SumP(i) = SumP(i) + Pcalc(i)
         If Qcalc(i) > 0 Then SumQ(i) = SumQ(i) + Qcalc(i)
