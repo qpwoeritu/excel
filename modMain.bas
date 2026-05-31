@@ -135,6 +135,12 @@ Public Sub runCALC()
 
     Dim Ysc() As Complex
     Dim Ik_input() As Double, Ik_result As Variant
+    Dim TrKt() As Double, GenKg() As Double
+    Dim Rth As Variant, Xth As Variant
+    Dim ip_result As Variant, Ith_result As Variant
+    Dim Ib_result As Variant, Ik_steady As Variant
+    Dim kappa_result As Variant, RXratio_result As Variant
+    Dim scenarioMin As Boolean, Tk_s As Double, f_Hz As Double, scenStr As String
     Dim ws As Worksheet
     Dim i As Long
 
@@ -215,14 +221,14 @@ Public Sub runCALC()
     Call GetBaseValues(SBase_MVA, VLevels)
     Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, VLevels, busDict)
     Call LoadBranchData(nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, BusNames, BusBaseKV, SBase_MVA, Bshunt, busDict)
-    Call LoadTransformerData(nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, BusNames, BusBaseKV, SBase_MVA, busDict)
+    Call LoadTransformerData(nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, TrKt, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadReactorData(nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadDifReactorData(nDifReaktory, DifReaktorName, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadSwitchData(nSwitches, SwitchName, SwFrom, SwTo, SwR, SwX, SwStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadCompData(nComp, CompName, CompBus, CompB, CompStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadMotorData(nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorG, MotorB, MotorStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadGeneratorData(nGens, GenName, GenTermBus, GenMode, GenStatus, _
-                           GenRa, GenXs, GenXd, GenP, GenQref, GenVref, GenEmag, GenPint, _
+                           GenRa, GenXs, GenXd, GenP, GenQref, GenVref, GenEmag, GenPint, GenKg, _
                            BusNames, BusBaseKV, SBase_MVA, busDict)
 
     Call FindIsolatedParts(nBuses, nBranches, FromBus, ToBus, BranchStatus, _
@@ -295,6 +301,19 @@ Public Sub runCALC()
             Next i
         End If
 
+        ' Voliteľné parametre skratu z listu data (defaulty zachovajú pôvodné správanie):
+        '   K12 = doba trvania skratu T_k [s] (default 1.0)
+        '   K13 = scenár "min"/"max" pre napäťový činiteľ c (default "max")
+        '   K14 = frekvencia f [Hz] (default 50)
+        With ThisWorkbook.Worksheets("data")
+            Tk_s = ParseDouble(.Range("K12").Value)
+            If Tk_s <= 0# Then Tk_s = 1#
+            scenStr = LCase$(Trim$(CStr(.Range("K13").Value)))
+            scenarioMin = (scenStr = "min")
+            f_Hz = ParseDouble(.Range("K14").Value)
+            If f_Hz <= 0# Then f_Hz = 50#
+        End With
+
         Call BuildShortCircuitMatrix(nBuses, nBranches, FromBus, ToBus, R, X, BranchStatus, _
                                      nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
                                      nTrafo, TrFrom, TrTo, TrR, TrX, TrRatio, _
@@ -303,6 +322,7 @@ Public Sub runCALC()
                                      nMotors, MotorBus, MotorXk, MotorStatus, _
                                      nGens, GenTermBus, GenStatus, GenRa, GenXd, _
                                      BusNames, BusTypes, BusBaseKV, Ik_input, SBase_MVA, _
+                                     scenarioMin, TrKt, GenKg, _
                                      IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, _
                                      Ysc)
     End If
@@ -352,8 +372,10 @@ Public Sub runCALC()
 
         Call BeginPhaseTimer(wsIdx.Range("J7"))
 
-        Call SolveShortCircuit(Ysc, nBuses, BusBaseKV, SBase_MVA, IsBusIsolated, Ik_result)
-        Call WriteShortCircuitResults(Ik_result, nBuses)
+        Call SolveShortCircuit(Ysc, nBuses, BusBaseKV, SBase_MVA, scenarioMin, IsBusIsolated, Ik_result, Rth, Xth)
+        Call ComputeSCDerived(nBuses, Ik_result, Rth, Xth, IsBusIsolated, Tk_s, f_Hz, _
+                              ip_result, Ith_result, Ib_result, Ik_steady, kappa_result, RXratio_result)
+        Call WriteShortCircuitResults(Ik_result, nBuses, ip_result, Ith_result, Ib_result, Ik_steady, kappa_result, RXratio_result)
 
         Call WritePhaseTime(wsIdx.Range("J7"), PhaseElapsed)
         Call EndPhaseTimer

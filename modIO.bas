@@ -108,6 +108,7 @@ Public Sub LoadTransformerData( _
     ByRef TrG() As Double, _
     ByRef TrB() As Double, _
     ByRef TrRatio() As Double, _
+    ByRef TrKt() As Double, _
     ByRef BusNames() As String, _
     ByRef BusBaseKV() As Double, _
     ByVal SBase_MVA As Double, _
@@ -117,6 +118,7 @@ Public Sub LoadTransformerData( _
     Dim lastRow As Long
     Dim i As Long
     Dim fromName As String, toName As String
+    Dim SrT As Double, UrT As Double, xT As Double
     Dim idxFrom As Long, idxTo As Long
     Dim Zbase_prim As Double
     Dim R_ohm As Double, X_ohm As Double
@@ -143,6 +145,7 @@ Public Sub LoadTransformerData( _
     ReDim TrG(1 To nTrafo)
     ReDim TrB(1 To nTrafo)
     ReDim TrRatio(1 To nTrafo)
+    ReDim TrKt(1 To nTrafo)
 
     ' Detekcia posunu stĺpcov:
     If InStr(1, LCase(CStr(ws.Cells(2, 18).Value)), "zk") > 0 Then
@@ -151,8 +154,8 @@ Public Sub LoadTransformerData( _
         colOffset = 0
     End If
 
-    ' bulk read C..(22+colOffset) - stĺpce v poli: 1=C(from), 2=D(to), 16+co=R, 17+co=X, 18+co=G, 19+co=B, 20+co=ratio
-    lastCol = 22 + colOffset
+    ' bulk read C..(24+colOffset) - stĺpce v poli: 1=C(from), 2=D(to), 16+co=R, 17+co=X, 18+co=G, 19+co=B, 20+co=ratio, 21+co=S_rT, 22+co=U_rT
+    lastCol = 24 + colOffset
     data = ws.Range(ws.Cells(3, 3), ws.Cells(lastRow, lastCol)).Value
 
     For i = 1 To nTrafo
@@ -202,6 +205,18 @@ Public Sub LoadTransformerData( _
         ' Prevod a
         TrRatio(i) = ParseDouble(data(i, 20 + colOffset))
         If TrRatio(i) <= 0# Then TrRatio(i) = 1#
+
+        ' Korekčný činiteľ K_T (IEC 60909-0) z voliteľných menovitých údajov S_rT, U_rT.
+        ' x_T = X_ohm·S_rT/U_rT² (p.u. na vlastnej báze trafa). Bez dát / mimo rozsahu -> K_T = 1.
+        TrKt(i) = 1#
+        SrT = ParseDouble(data(i, 21 + colOffset))
+        UrT = ParseDouble(data(i, 22 + colOffset))
+        If SrT > 0# And UrT > 0# And X_ohm > 0# Then
+            xT = X_ohm * SrT / (UrT * UrT)
+            If xT > 0# And xT < 1# Then
+                TrKt(i) = 0.95 * 1.1 / (1# + 0.6 * xT)
+            End If
+        End If
     Next i
 End Sub
 
@@ -484,6 +499,7 @@ Public Sub LoadGeneratorData( _
     ByRef GenVref() As Double, _
     ByRef GenEmag() As Double, _
     ByRef GenPint() As Double, _
+    ByRef GenKg() As Double, _
     ByRef BusNames() As String, _
     ByRef BusBaseKV() As Double, _
     ByVal SBase_MVA As Double, _
@@ -499,6 +515,7 @@ Public Sub LoadGeneratorData( _
     Dim data As Variant
     Dim vref As Double, p As Double, q As Double
     Dim Iref As Complex, Zs As Complex, Evec As Complex
+    Dim XdOhm As Double, SrG As Double, UrG As Double, cosphi As Double, sinphi As Double, xdpp As Double
 
     Set ws = GetOrCreateSheet("generatory")
 
@@ -522,10 +539,12 @@ Public Sub LoadGeneratorData( _
     ReDim GenVref(1 To nGens)
     ReDim GenEmag(1 To nGens)
     ReDim GenPint(1 To nGens)
+    ReDim GenKg(1 To nGens)
 
-    ' bulk read B..Q (1=B meno, 2=C svorka, 3=D režim, 4=E status,
-    ' 11=L Ra, 12=M P_gen, 13=N Q_ref, 14=O Xs, 15=P Xd'', 16=Q V_ref)
-    data = ws.Range(ws.Cells(3, 2), ws.Cells(lastRow, 17)).Value
+    ' bulk read B..T (1=B meno, 2=C svorka, 3=D režim, 4=E status,
+    ' 11=L Ra, 12=M P_gen, 13=N Q_ref, 14=O Xs, 15=P Xd'', 16=Q V_ref,
+    ' 17=R S_rG, 18=S U_rG, 19=T cos φ)
+    data = ws.Range(ws.Cells(3, 2), ws.Cells(lastRow, 20)).Value
 
     For i = 1 To nGens
         GenName(i) = CStr(data(i, 1))                       ' B
@@ -610,6 +629,21 @@ Public Sub LoadGeneratorData( _
             Evec = CAdd(CCreate(vref, 0#), CMul(Zs, Iref))
             GenEmag(i) = CAbs(Evec)
             GenPint(i) = p + (Iref.Re * Iref.Re + Iref.Im * Iref.Im) * GenRa(i)
+        End If
+
+        ' Korekčný činiteľ K_G (IEC 60909-0) z voliteľných menovitých údajov S_rG, U_rG, cos φ.
+        ' x_d'' = Xd''_ohm·S_rG/U_rG² (p.u. na báze stroja). Bez dát / mimo rozsahu -> K_G = 1.
+        GenKg(i) = 1#
+        XdOhm = ParseDouble(data(i, 15))            ' P: Xd'' [ohm]
+        SrG = ParseDouble(data(i, 17))              ' R: S_rG [MVA]
+        UrG = ParseDouble(data(i, 18))              ' S: U_rG [kV]
+        cosphi = ParseDouble(data(i, 19))           ' T: cos φ_rG
+        If SrG > 0# And UrG > 0# And XdOhm > 0# And cosphi > 0# And cosphi <= 1# And Ubase > 0# Then
+            xdpp = XdOhm * SrG / (UrG * UrG)
+            If xdpp > 0# And xdpp < 1# Then
+                sinphi = Sqr(1# - cosphi * cosphi)
+                GenKg(i) = (Ubase / UrG) * 1.1 / (1# + xdpp * sinphi)
+            End If
         End If
     Next i
 End Sub
