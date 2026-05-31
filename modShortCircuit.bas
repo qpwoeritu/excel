@@ -203,22 +203,22 @@ Public Sub WriteShortCircuitResults(ByRef Ik_result As Variant, ByVal nBuses As 
     ByRef kappa_result As Variant, ByRef RXratio_result As Variant)
     Dim ws As Worksheet, i As Long
     Set ws = ThisWorkbook.Worksheets("uzly")
-    ' Stĺpec J (10) = Ik3'' (vstup pre slack aj výstup); nové veličiny v K..P (11..16).
+    ' Stĺpec J (10) = Ik3'' (vstup pre slack aj výstup); nové veličiny v N..S (14..19).
     ws.Cells(2, 10).Value = "Ik3'' [kA]"
-    ws.Cells(2, 11).Value = "ip [kA]"
-    ws.Cells(2, 12).Value = "Ith [kA]"
-    ws.Cells(2, 13).Value = "Ib [kA]"
-    ws.Cells(2, 14).Value = "Ik [kA]"
-    ws.Cells(2, 15).Value = "kappa [-]"
-    ws.Cells(2, 16).Value = "R/X [-]"
+    ws.Cells(2, 14).Value = "ip [kA]"
+    ws.Cells(2, 15).Value = "Ith [kA]"
+    ws.Cells(2, 16).Value = "Ib [kA]"
+    ws.Cells(2, 17).Value = "Ik [kA]"
+    ws.Cells(2, 18).Value = "kappa [-]"
+    ws.Cells(2, 19).Value = "R/X [-]"
     For i = 1 To nBuses
         ws.Cells(2 + i, 10).Value = Round(Ik_result(i), 2)
-        ws.Cells(2 + i, 11).Value = Round(ip_result(i), 2)
-        ws.Cells(2 + i, 12).Value = Round(Ith_result(i), 2)
-        ws.Cells(2 + i, 13).Value = Round(Ib_result(i), 2)
-        ws.Cells(2 + i, 14).Value = Round(Ik_steady(i), 2)
-        ws.Cells(2 + i, 15).Value = Round(kappa_result(i), 3)
-        ws.Cells(2 + i, 16).Value = Round(RXratio_result(i), 3)
+        ws.Cells(2 + i, 14).Value = Round(ip_result(i), 2)
+        ws.Cells(2 + i, 15).Value = Round(Ith_result(i), 2)
+        ws.Cells(2 + i, 16).Value = Round(Ib_result(i), 2)
+        ws.Cells(2 + i, 17).Value = Round(Ik_steady(i), 2)
+        ws.Cells(2 + i, 18).Value = Round(kappa_result(i), 3)
+        ws.Cells(2 + i, 19).Value = Round(RXratio_result(i), 3)
     Next i
 End Sub
 
