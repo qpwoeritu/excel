@@ -26,6 +26,7 @@ Public Sub BuildShortCircuitMatrix( _
     ByVal nGens As Long, ByRef GenTermBus As Variant, ByRef GenStatus As Variant, ByRef GenRa As Variant, ByRef GenXd As Variant, _
     ByRef BusNames As Variant, ByRef BusTypes As Variant, ByRef BusBaseKV As Variant, _
     ByRef Ik_input As Variant, ByVal SBase_MVA As Double, _
+    ByVal scenarioMin As Boolean, ByRef TrKt As Variant, ByRef GenKg As Variant, _
     ByRef IsBusIsolated As Variant, ByRef IsBranchIsolated As Variant, ByRef IsTrafoIsolated As Variant, _
     ByRef IsReaktorIsolated As Variant, ByRef IsDifReaktorIsolated As Variant, ByRef IsSwitchIsolated As Variant, _
     ByRef Ysc() As Complex)
@@ -33,6 +34,7 @@ Public Sub BuildShortCircuitMatrix( _
     Dim i As Long, J As Long, k As Long
     Dim Z As Complex, Ys As Complex, t1 As Complex, t2 As Complex, A As Double
     Dim Ik_slack As Double, Z_grid_abs As Double, Un As Double
+    Dim kt As Double, kg As Double
 
     ReDim Ysc(1 To nBuses, 1 To nBuses)
 
@@ -54,10 +56,12 @@ Public Sub BuildShortCircuitMatrix( _
         End If
     Next k
 
-    ' Trafá
+    ' Trafá (impedancia korigovaná činiteľom K_T podľa IEC 60909-0; K_T=1 ak chýbajú menovité dáta)
     For k = 1 To nTrafo
         If Not IsTrafoIsolated(k) And Not (TrR(k) = 0 And TrX(k) = 0) Then
-            Z = CCreate(CDbl(TrR(k)), CDbl(TrX(k))): Ys = CDiv(CCreate(1, 0), Z)
+            kt = CDbl(TrKt(k))
+            If kt <= 0# Then kt = 1#
+            Z = CCreate(CDbl(TrR(k)) * kt, CDbl(TrX(k)) * kt): Ys = CDiv(CCreate(1, 0), Z)
             i = TrFrom(k): J = TrTo(k): A = TrRatio(k)
             t1 = CCreate(Ys.Re / (A * A), Ys.Im / (A * A))
             Ysc(i, i) = CAdd(Ysc(i, i), t1): Ysc(J, J) = CAdd(Ysc(J, J), Ys)
@@ -109,25 +113,28 @@ Public Sub BuildShortCircuitMatrix( _
         End If
     Next k
 
-    ' Generátory – príspevok do skratu cez subtranzientnú impedanciu Z = R_G + j*X''d.
+    ' Generátory – subtranzientná impedancia Z = K_G*(R_G + j*X''d) podľa IEC 60909-0
+    ' (K_G=1 ak chýbajú menovité dáta pre korekciu).
     For k = 1 To nGens
         If GenStatus(k) = 1 Then
             i = GenTermBus(k)
             If Not IsBusIsolated(i) And Not (GenRa(k) = 0 And GenXd(k) = 0) Then
-                Z = CCreate(CDbl(GenRa(k)), CDbl(GenXd(k)))
+                kg = CDbl(GenKg(k))
+                If kg <= 0# Then kg = 1#
+                Z = CCreate(CDbl(GenRa(k)) * kg, CDbl(GenXd(k)) * kg)
                 Ys = CDiv(CCreate(1, 0), Z)
                 Ysc(i, i) = CAdd(Ysc(i, i), Ys)
             End If
         End If
     Next k
 
-    ' Slack impedancia (z dodaného Ik3 v listoch uzly)
+    ' Slack impedancia (zo zadaného Ik3'' v liste uzly), napäťový činiteľ c podľa scenára.
     For i = 1 To nBuses
         If BusTypes(i) = 0 Then ' btSlack
             Ik_slack = Ik_input(i)
             If Ik_slack > 0 Then
                 Un = BusBaseKV(i)
-                Z_grid_abs = (1.1 * SBase_MVA) / (Sqr(3) * Un * Ik_slack)
+                Z_grid_abs = (SCVoltageFactor(Un, scenarioMin) * SBase_MVA) / (Sqr(3) * Un * Ik_slack)
                 Ysc(i, i) = CAdd(Ysc(i, i), CDiv(CCreate(1, 0), CCreate(0, Z_grid_abs)))
             End If
             Exit For
@@ -148,30 +155,41 @@ Public Sub SolveShortCircuit( _
     ByVal nBuses As Long, _
     ByRef BusBaseKV As Variant, _
     ByVal SBase_MVA As Double, _
+    ByVal scenarioMin As Boolean, _
     ByRef IsBusIsolated As Variant, _
-    ByRef Ik_result As Variant)
+    ByRef Ik_result As Variant, _
+    ByRef Rth As Variant, _
+    ByRef Xth As Variant)
 
     Dim i As Long
     Dim Z_inv() As Complex
-    Dim R_th As Double, X_th As Double, Z_th As Double, Un As Double
+    Dim R_th As Double, X_th As Double, Z_th As Double, Un As Double, cF As Double
 
     ReDim Ik_result(1 To nBuses)
+    ReDim Rth(1 To nBuses)
+    ReDim Xth(1 To nBuses)
 
     ' Natívna komplexná inverzia n×n (bez 2n×2n reálneho rozšírenia)
     ' – objem aritmetiky klesá zhruba 8-krát oproti pôvodnému prístupu.
     Call ComplexMatrixInverse_Gauss(Ysc, Z_inv)
 
-    ' Výpočet Ik v každom uzle z diagonály Z_th = Ysc^-1
+    ' Výpočet Ik v každom uzle z diagonály Z_th = Ysc^-1.
+    ' R_th, X_th sa exportujú pre nadväzný výpočet κ, i_p a I_th (ComputeSCDerived).
     For i = 1 To nBuses
         If IsBusIsolated(i) Then
             Ik_result(i) = 0
+            Rth(i) = 0#
+            Xth(i) = 0#
         Else
             R_th = Z_inv(i, i).Re
             X_th = Z_inv(i, i).Im
+            Rth(i) = R_th
+            Xth(i) = X_th
             Z_th = Sqr(R_th * R_th + X_th * X_th)
             Un = BusBaseKV(i)
             If Z_th > 0.0000001 Then
-                Ik_result(i) = (1.1 / Z_th) * (SBase_MVA / (Sqr(3) * Un))
+                cF = SCVoltageFactor(Un, scenarioMin)
+                Ik_result(i) = (cF / Z_th) * (SBase_MVA / (Sqr(3) * Un))
             Else
                 Ik_result(i) = 0
             End If
@@ -179,12 +197,28 @@ Public Sub SolveShortCircuit( _
     Next i
 End Sub
 
-Public Sub WriteShortCircuitResults(ByRef Ik_result As Variant, ByVal nBuses As Long)
+Public Sub WriteShortCircuitResults(ByRef Ik_result As Variant, ByVal nBuses As Long, _
+    ByRef ip_result As Variant, ByRef Ith_result As Variant, _
+    ByRef Ib_result As Variant, ByRef Ik_steady As Variant, _
+    ByRef kappa_result As Variant, ByRef RXratio_result As Variant)
     Dim ws As Worksheet, i As Long
     Set ws = ThisWorkbook.Worksheets("uzly")
+    ' Stĺpec J (10) = Ik3'' (vstup pre slack aj výstup); nové veličiny v N..S (14..19).
     ws.Cells(2, 10).Value = "Ik3'' [kA]"
+    ws.Cells(2, 14).Value = "ip [kA]"
+    ws.Cells(2, 15).Value = "Ith [kA]"
+    ws.Cells(2, 16).Value = "Ib [kA]"
+    ws.Cells(2, 17).Value = "Ik [kA]"
+    ws.Cells(2, 18).Value = "kappa [-]"
+    ws.Cells(2, 19).Value = "R/X [-]"
     For i = 1 To nBuses
         ws.Cells(2 + i, 10).Value = Round(Ik_result(i), 2)
+        ws.Cells(2 + i, 14).Value = Round(ip_result(i), 2)
+        ws.Cells(2 + i, 15).Value = Round(Ith_result(i), 2)
+        ws.Cells(2 + i, 16).Value = Round(Ib_result(i), 2)
+        ws.Cells(2 + i, 17).Value = Round(Ik_steady(i), 2)
+        ws.Cells(2 + i, 18).Value = Round(kappa_result(i), 3)
+        ws.Cells(2 + i, 19).Value = Round(RXratio_result(i), 3)
     Next i
 End Sub
 
@@ -343,5 +377,93 @@ Private Sub ComplexMatrixInverse_Gauss(ByRef A_in() As Complex, ByRef A_inv() As
         For J = 1 To n
             A_inv(i, J) = A(i, n + J)
         Next J
+    Next i
+End Sub
+
+'--------------------------------------
+' Napäťový činiteľ c podľa IEC 60909-0 (tab. 1).
+'   scenario "max" (default): c = 1.1 pre všetky hladiny – zhodné s pôvodným správaním.
+'   scenario "min":           c = 1.0 pre U_n > 1 kV, c = 0.95 pre NN.
+'--------------------------------------
+Public Function SCVoltageFactor(ByVal Un_kV As Double, ByVal scenarioMin As Boolean) As Double
+    If scenarioMin Then
+        If Un_kV > 1# Then
+            SCVoltageFactor = 1#
+        Else
+            SCVoltageFactor = 0.95
+        End If
+    Else
+        SCVoltageFactor = 1.1
+    End If
+End Function
+
+'--------------------------------------
+' Odvodené skratové veličiny podľa IEC 60909-0 z Ik'' a Théveninovej impedancie:
+'   - nárazový činiteľ κ = 1.02 + 0.98·e^(-3·R/X)   (metóda B – R/X v mieste skratu)
+'   - nárazový prúd        i_p   = κ·√2·Ik''
+'   - tepelný prúd         I_th  = Ik''·√(m + n),  n = 1 (vzdialený skrat),
+'        m = 1/(2·f·T_k·ln(κ-1)) · (e^(4·f·T_k·ln(κ-1)) - 1)
+'   - vypínací/ustálený    I_b = I_k = Ik''         (predpoklad vzdialeného skratu)
+'
+' Poznámka: pri skrate v blízkosti generátora/motora útlm (μ, λ, q) pre I_b/I_k
+' a teplotná korekcia odporu pre min. prúdy nie sú zahrnuté (vyžadujú ďalšie
+' menovité dáta strojov) – I_b/I_k tu zodpovedajú vzdialenému skratu.
+'--------------------------------------
+Public Sub ComputeSCDerived( _
+    ByVal nBuses As Long, _
+    ByRef Ik_result As Variant, ByRef Rth As Variant, ByRef Xth As Variant, _
+    ByRef IsBusIsolated As Variant, _
+    ByVal Tk_s As Double, ByVal f_Hz As Double, _
+    ByRef ip_result As Variant, ByRef Ith_result As Variant, _
+    ByRef Ib_result As Variant, ByRef Ik_steady As Variant, _
+    ByRef kappa_result As Variant, ByRef RXratio_result As Variant)
+
+    Dim i As Long
+    Dim rx As Double, kappa As Double, m As Double, n As Double, lnk As Double
+
+    ReDim ip_result(1 To nBuses)
+    ReDim Ith_result(1 To nBuses)
+    ReDim Ib_result(1 To nBuses)
+    ReDim Ik_steady(1 To nBuses)
+    ReDim kappa_result(1 To nBuses)
+    ReDim RXratio_result(1 To nBuses)
+
+    For i = 1 To nBuses
+        If IsBusIsolated(i) Or Ik_result(i) <= 0# Then
+            ip_result(i) = 0#: Ith_result(i) = 0#
+            Ib_result(i) = 0#: Ik_steady(i) = 0#
+            kappa_result(i) = 0#: RXratio_result(i) = 0#
+        Else
+            ' R/X v mieste skratu z Théveninovej impedancie (guard X_th -> 0)
+            If Abs(Xth(i)) > 0.0000001 Then
+                rx = Rth(i) / Xth(i)
+            Else
+                rx = 0#
+            End If
+            If rx < 0# Then rx = 0#
+            RXratio_result(i) = rx
+
+            kappa = 1.02 + 0.98 * Exp(-3# * rx)
+            kappa_result(i) = kappa
+            ip_result(i) = kappa * Sqr(2#) * Ik_result(i)
+
+            ' Tepelný ekvivalentný prúd: jednosmerná zložka m, striedavá n = 1.
+            n = 1#
+            m = 0#
+            If Tk_s > 0# And f_Hz > 0# And (kappa - 1#) > 0# Then
+                lnk = Log(kappa - 1#)              ' VBA Log = prirodzený logaritmus
+                If Abs(lnk) < 0.000000001 Then
+                    m = 2#                          ' limita pre κ -> 2 (R/X -> 0): m -> 2
+                Else
+                    m = (1# / (2# * f_Hz * Tk_s * lnk)) * (Exp(4# * f_Hz * Tk_s * lnk) - 1#)
+                    If m < 0# Then m = 0#
+                End If
+            End If
+            Ith_result(i) = Ik_result(i) * Sqr(m + n)
+
+            ' Vzdialený skrat: vypínací aj ustálený prúd = začiatočný Ik''.
+            Ib_result(i) = Ik_result(i)
+            Ik_steady(i) = Ik_result(i)
+        End If
     Next i
 End Sub
