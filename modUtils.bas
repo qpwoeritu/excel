@@ -146,4 +146,30 @@ Public Function GetBaseVoltageForBus(ByVal V_kV As Double, ByRef VLevels() As Do
     GetBaseVoltageForBus = VLevels(bestK)
 End Function
 
+'==========================
+' Hlavičky výsledkových stĺpcov vo vstupných kartách
+'
+' Popisy stĺpcov v kartách "uzly", "vedenia", "transformatory", "reaktory",
+' "dif_reaktory", "kompenzácia", "generatory", "motoryVN" a "spinace" si píše
+' používateľ sám priamo v zošite. Kód do hlavičkových riadkov nezapisuje nič –
+' zapisuje výhradne hodnoty do dátových riadkov pod nimi.
+'
+' Netýka sa generovaných listov ("napatia", "epsilon", "Y_matica", "SC_matica",
+' "report", "SLD_Report"), ktoré sa pred zápisom celé mažú a hlavičky si tvoria samy.
+'==========================
+
+' False = hlavičky píše používateľ, kód sa hlavičkových buniek nedotkne (predvolené)
+' True  = kód si dopisuje hlavičky výsledkových stĺpcov (pôvodné správanie)
+Public Const WRITE_RESULT_HEADERS As Boolean = False
+
+' Zápis hlavičky výsledkového stĺpca do vstupnej karty.
+' Pri WRITE_RESULT_HEADERS = False neurobí nič, takže vlastný text v hlavičke
+' ostáva nedotknutý. Texty v jednotlivých volaniach ostávajú v kóde ako
+' dokumentácia toho, čo sa do daného stĺpca zapisuje.
+Public Sub WriteResultHeader(ByVal ws As Worksheet, ByVal headerRow As Long, _
+                             ByVal col As Long, ByVal headerText As String)
+    If Not WRITE_RESULT_HEADERS Then Exit Sub
+    ws.Cells(headerRow, col).Value = headerText
+End Sub
+
 

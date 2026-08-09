@@ -96,9 +96,12 @@ Public Sub LoadBusData( _
 End Sub
 
 ' Načítanie dát transformátorov z listu "transformatory"
+' Hlavička: riadok 2, dáta od 3
 ' C: Uzol od, D: Uzol do
-' Detekcia stĺpcov pre Rk, Xk, G0, B0, Prevod
-' Ak je prítomný stĺpec Zk (napr. na pozícii 18), posun +1.
+' R: Rk [ohm], S: Xk [ohm], T: G0 [S], U: B0 [S], V: Prevod a
+'
+' Pôvodná automatická detekcia stĺpca Zk podľa textu hlavičky v R2 bola zrušená –
+' rozloženie stĺpcov je pevné (v R2 je Rk).
 Public Sub LoadTransformerData( _
     ByRef nTrafo As Long, _
     ByRef TrFrom() As Long, _
@@ -122,7 +125,6 @@ Public Sub LoadTransformerData( _
     Dim R_ohm As Double, X_ohm As Double
     Dim G_siemens As Double, B_siemens As Double
     Dim Ubase1 As Double
-    Dim colOffset As Long
     Dim data As Variant
     Dim lastCol As Long
 
@@ -144,15 +146,8 @@ Public Sub LoadTransformerData( _
     ReDim TrB(1 To nTrafo)
     ReDim TrRatio(1 To nTrafo)
 
-    ' Detekcia posunu stĺpcov:
-    If InStr(1, LCase(CStr(ws.Cells(2, 18).Value)), "zk") > 0 Then
-        colOffset = 1
-    Else
-        colOffset = 0
-    End If
-
-    ' bulk read C..(22+colOffset) - stĺpce v poli: 1=C(from), 2=D(to), 16+co=R, 17+co=X, 18+co=G, 19+co=B, 20+co=ratio
-    lastCol = 22 + colOffset
+    ' bulk read C..V - stĺpce v poli: 1=C(from), 2=D(to), 16=R(Rk), 17=S(Xk), 18=T(G0), 19=U(B0), 20=V(prevod)
+    lastCol = 22
     data = ws.Range(ws.Cells(3, 3), ws.Cells(lastRow, lastCol)).Value
 
     For i = 1 To nTrafo
@@ -180,9 +175,9 @@ Public Sub LoadTransformerData( _
             Zbase_prim = 1#
         End If
 
-        ' R, X v Ohmoch -> p.u.   (col 18+co = pole-col 16+co, col 19+co = 17+co)
-        R_ohm = ParseDouble(data(i, 16 + colOffset))
-        X_ohm = ParseDouble(data(i, 17 + colOffset))
+        ' R, X v Ohmoch -> p.u.   (R = stĺpec R(18) = pole-col 16, X = stĺpec S(19) = pole-col 17)
+        R_ohm = ParseDouble(data(i, 16))
+        X_ohm = ParseDouble(data(i, 17))
 
         If Zbase_prim <> 0# Then
             TrR(i) = R_ohm / Zbase_prim
@@ -192,15 +187,15 @@ Public Sub LoadTransformerData( _
             TrX(i) = 0#
         End If
 
-        ' G, B v Siemensoch -> p.u.
-        G_siemens = ParseDouble(data(i, 18 + colOffset))
-        B_siemens = ParseDouble(data(i, 19 + colOffset))
+        ' G, B v Siemensoch -> p.u.   (G = stĺpec T(20), B = stĺpec U(21))
+        G_siemens = ParseDouble(data(i, 18))
+        B_siemens = ParseDouble(data(i, 19))
 
         TrG(i) = G_siemens * Zbase_prim
         TrB(i) = B_siemens * Zbase_prim
 
-        ' Prevod a
-        TrRatio(i) = ParseDouble(data(i, 20 + colOffset))
+        ' Prevod a (stĺpec V(22))
+        TrRatio(i) = ParseDouble(data(i, 20))
         If TrRatio(i) <= 0# Then TrRatio(i) = 1#
     Next i
 End Sub
@@ -743,10 +738,12 @@ Public Sub WriteGeneratorResults( _
     If nGens < 1 Then Exit Sub
 
     Set ws = GetOrCreateSheet("generatory")
-    ws.Cells(2, 18).Value = "δ [deg]"
-    ws.Cells(2, 19).Value = "Q_gen [Mvar]"
-    ws.Cells(2, 29).Value = "I [A]"
-    ws.Cells(2, 30).Value = "Ploss [kW]"
+
+    ' Hlavičky (riadok 2)
+    Call WriteResultHeader(ws, 2, 18, "δ [deg]")
+    Call WriteResultHeader(ws, 2, 19, "Q_gen [Mvar]")
+    Call WriteResultHeader(ws, 2, 29, "I [A]")
+    Call WriteResultHeader(ws, 2, 30, "Ploss [kW]")
 
     For i = 1 To nGens
         If GenStatus(i) = 1 Then
@@ -920,9 +917,9 @@ Public Sub WriteMotorResults( _
     
     Set ws = GetOrCreateSheet("motoryVN")
     
-    ' Hlavička
-    ws.Cells(2, 30).Value = "I [A]"     ' AD (30)
-    ws.Cells(2, 31).Value = "Ploss [kW]" ' AE (31)
+    ' Hlavičky (riadok 2)
+    Call WriteResultHeader(ws, 2, 30, "I [A]")      ' AD (30)
+    Call WriteResultHeader(ws, 2, 31, "Ploss [kW]") ' AE (31)
     
     For i = 1 To nMotors
         If MotorStatus(i) = 1 Then
@@ -969,8 +966,8 @@ Public Sub WriteCompResults( _
     
     Set ws = GetOrCreateSheet("kompenzácia")
     
-    ' Hlavička
-    ws.Cells(3, 15).Value = "U [kV]" ' O (15)
+    ' Hlavička (riadok 3)
+    Call WriteResultHeader(ws, 3, 15, "U [kV]") ' O (15)
     
     For i = 1 To nComp
         idxBus = CompBus(i)
@@ -1008,11 +1005,11 @@ Public Sub WriteReactorResults( _
     Set ws = GetOrCreateSheet("reaktory")
     
     ' Hlavičky (riadok 3)
-    ws.Cells(3, 26).Value = "I [A]"
-    ws.Cells(3, 27).Value = "dU [%]"
-    ws.Cells(3, 28).Value = "P [MW]"
-    ws.Cells(3, 29).Value = "Q [MVAr]"
-    ws.Cells(3, 30).Value = "Ploss [kW]"
+    Call WriteResultHeader(ws, 3, 26, "I [A]")
+    Call WriteResultHeader(ws, 3, 27, "dU [%]")
+    Call WriteResultHeader(ws, 3, 28, "P [MW]")
+    Call WriteResultHeader(ws, 3, 29, "Q [MVAr]")
+    Call WriteResultHeader(ws, 3, 30, "Ploss [kW]")
     
     For k = 1 To nReaktory
         iBus = ReaktorFrom(k)
@@ -1092,11 +1089,11 @@ Public Sub WriteDifReactorResults( _
     Set ws = GetOrCreateSheet("dif_reaktory")
     
     ' Hlavičky (riadok 3) od stĺpca X (24)
-    ws.Cells(3, 24).Value = "I [A]"
-    ws.Cells(3, 25).Value = "dU [%]"
-    ws.Cells(3, 26).Value = "P [MW]"
-    ws.Cells(3, 27).Value = "Q [MVAr]"
-    ws.Cells(3, 28).Value = "Ploss [kW]"
+    Call WriteResultHeader(ws, 3, 24, "I [A]")
+    Call WriteResultHeader(ws, 3, 25, "dU [%]")
+    Call WriteResultHeader(ws, 3, 26, "P [MW]")
+    Call WriteResultHeader(ws, 3, 27, "Q [MVAr]")
+    Call WriteResultHeader(ws, 3, 28, "Ploss [kW]")
     
     For k = 1 To nDifReaktory
         iBus = DifReaktorFrom(k)
@@ -1277,8 +1274,8 @@ Public Sub WriteFinalVoltagesToUzly( _
     Set ws = ThisWorkbook.Worksheets("uzly")
 
     ' hlavičky výsledkov (riadok 2)
-    ws.Cells(2, 8).Value = "|V| výp. [kV]"
-    ws.Cells(2, 9).Value = "? výp. [deg]"
+    Call WriteResultHeader(ws, 2, 8, "|V| výp. [kV]")
+    Call WriteResultHeader(ws, 2, 9, "? výp. [deg]")
     
     ' dáta od riadku 3
     For i = 1 To nBuses
@@ -1330,11 +1327,11 @@ Public Sub WriteBranchCurrents( _
     Set ws = ThisWorkbook.Worksheets("vedenia")
     
     ' hlavičky stĺpcov - riadok 2, stĺpce Q(17)..U(21)
-    ws.Cells(2, 17).Value = "|I_ij| [A]"
-    ws.Cells(2, 18).Value = "?U [%]"
-    ws.Cells(2, 19).Value = "P_ij [MW]"
-    ws.Cells(2, 20).Value = "Q_ij [MVAr]"
-    ws.Cells(2, 21).Value = "P_str [kW]"
+    Call WriteResultHeader(ws, 2, 17, "|I_ij| [A]")
+    Call WriteResultHeader(ws, 2, 18, "?U [%]")
+    Call WriteResultHeader(ws, 2, 19, "P_ij [MW]")
+    Call WriteResultHeader(ws, 2, 20, "Q_ij [MVAr]")
+    Call WriteResultHeader(ws, 2, 21, "P_str [kW]")
     
     ' vetvy sú v riadkoch 3..(nBranches+2)
     For k = 1 To nBranches
@@ -1575,14 +1572,14 @@ Public Sub WriteTransformerFlows( _
     
     Set ws = ThisWorkbook.Worksheets("transformatory")
     
-    ' Hlavičky
-    ws.Cells(2, 24).Value = "|I_prim| [A]"
-    ws.Cells(2, 25).Value = "|I_sec| [A]"
-    ws.Cells(2, 26).Value = "P_prim [MW]"
-    ws.Cells(2, 27).Value = "Q_prim [MVAr]"
-    ws.Cells(2, 28).Value = "P_sec [MW]"
-    ws.Cells(2, 29).Value = "Q_sec [MVAr]"
-    ws.Cells(2, 30).Value = "P_str [kW]"
+    ' Hlavičky (riadok 2)
+    Call WriteResultHeader(ws, 2, 24, "|I_prim| [A]")
+    Call WriteResultHeader(ws, 2, 25, "|I_sec| [A]")
+    Call WriteResultHeader(ws, 2, 26, "P_prim [MW]")
+    Call WriteResultHeader(ws, 2, 27, "Q_prim [MVAr]")
+    Call WriteResultHeader(ws, 2, 28, "P_sec [MW]")
+    Call WriteResultHeader(ws, 2, 29, "Q_sec [MVAr]")
+    Call WriteResultHeader(ws, 2, 30, "P_str [kW]")
     
     For k = 1 To nTrafo
         i = TrFrom(k) ' Primár (s odbočkou)
@@ -1870,8 +1867,8 @@ Public Sub WriteSwitchResults(ByVal nSwitches As Long, ByRef SwCurrent() As Doub
     If ws Is Nothing Then Exit Sub
     On Error GoTo 0
     
-    ' Hlavička N(14)
-    ws.Cells(2, 14).Value = "I [A]"
+    ' Hlavička N(14), riadok 2
+    Call WriteResultHeader(ws, 2, 14, "I [A]")
     
     For i = 1 To nSwitches
         ws.Cells(i + 2, 14).Value = Round(SwCurrent(i), 2)
