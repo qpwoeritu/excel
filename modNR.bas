@@ -663,9 +663,6 @@ Private Sub WriteNodeThroughput( _
     Next i
 
     Set ws = ThisWorkbook.Worksheets("uzly")
-    ws.Cells(2, 11).Value = "Sum P_in [MW]"
-    ws.Cells(2, 12).Value = "Sum Q_in [Mvar]"
-    ws.Cells(2, 13).Value = "Sum I [A]"
 
     For i = 1 To nBuses
         Dim P_real As Double, Q_real As Double, I_real As Double

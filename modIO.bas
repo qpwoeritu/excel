@@ -743,10 +743,6 @@ Public Sub WriteGeneratorResults( _
     If nGens < 1 Then Exit Sub
 
     Set ws = GetOrCreateSheet("generatory")
-    ws.Cells(2, 18).Value = "δ [deg]"
-    ws.Cells(2, 19).Value = "Q_gen [Mvar]"
-    ws.Cells(2, 29).Value = "I [A]"
-    ws.Cells(2, 30).Value = "Ploss [kW]"
 
     For i = 1 To nGens
         If GenStatus(i) = 1 Then
@@ -920,10 +916,6 @@ Public Sub WriteMotorResults( _
     
     Set ws = GetOrCreateSheet("motoryVN")
     
-    ' Hlavička
-    ws.Cells(2, 30).Value = "I [A]"     ' AD (30)
-    ws.Cells(2, 31).Value = "Ploss [kW]" ' AE (31)
-    
     For i = 1 To nMotors
         If MotorStatus(i) = 1 Then
             idxBus = MotorBus(i)
@@ -969,9 +961,6 @@ Public Sub WriteCompResults( _
     
     Set ws = GetOrCreateSheet("kompenzácia")
     
-    ' Hlavička
-    ws.Cells(3, 15).Value = "U [kV]" ' O (15)
-    
     For i = 1 To nComp
         idxBus = CompBus(i)
         U_kV = Vmag(idxBus) * BusBaseKV(idxBus)
@@ -1006,13 +995,6 @@ Public Sub WriteReactorResults( _
     Dim Ubase As Double
     
     Set ws = GetOrCreateSheet("reaktory")
-    
-    ' Hlavičky (riadok 3)
-    ws.Cells(3, 26).Value = "I [A]"
-    ws.Cells(3, 27).Value = "dU [%]"
-    ws.Cells(3, 28).Value = "P [MW]"
-    ws.Cells(3, 29).Value = "Q [MVAr]"
-    ws.Cells(3, 30).Value = "Ploss [kW]"
     
     For k = 1 To nReaktory
         iBus = ReaktorFrom(k)
@@ -1090,13 +1072,6 @@ Public Sub WriteDifReactorResults( _
     Dim Ubase As Double
     
     Set ws = GetOrCreateSheet("dif_reaktory")
-    
-    ' Hlavičky (riadok 3) od stĺpca X (24)
-    ws.Cells(3, 24).Value = "I [A]"
-    ws.Cells(3, 25).Value = "dU [%]"
-    ws.Cells(3, 26).Value = "P [MW]"
-    ws.Cells(3, 27).Value = "Q [MVAr]"
-    ws.Cells(3, 28).Value = "Ploss [kW]"
     
     For k = 1 To nDifReaktory
         iBus = DifReaktorFrom(k)
@@ -1197,26 +1172,27 @@ Public Sub WriteYMatrix( _
     ws.Range(ws.Cells(startRowB + 1, col0), ws.Cells(startRowB + 1 + n, col0 + n)).Value = arr
 End Sub
 
-' Vymazanie / príprava výsledkových listov "napatia" a "epsilon"
+' Vyčistenie dátovej oblasti výsledkových listov "napatia" a "epsilon".
+' Hlavičky v riadku 1 si spravuje používateľ v zošite – kód ich nezapisuje ani nemaže.
 Public Sub ClearResultsSheets()
     Dim wsV As Worksheet, wsE As Worksheet
     
     Set wsV = GetOrCreateSheet("napatia")
     Set wsE = GetOrCreateSheet("epsilon")
     
-    wsV.Cells.Clear
-    wsE.Cells.Clear
+    Call ClearDataRows(wsV, 2)
+    Call ClearDataRows(wsE, 2)
+End Sub
+
+' Vyčistí dátovú oblasť listu od riadku firstDataRow nižšie.
+' Riadky nad firstDataRow (hlavičky) ostávajú nedotknuté vrátane formátovania.
+Private Sub ClearDataRows(ByVal ws As Worksheet, ByVal firstDataRow As Long)
+    Dim lastRow As Long
     
-    ' hlavičky
-    wsV.Cells(1, 1).Value = "Iterácia"
-    wsV.Cells(1, 2).Value = "Uzol"
-    wsV.Cells(1, 3).Value = "|V| [p.u.]"
-    wsV.Cells(1, 4).Value = "? [deg]"
-    
-    wsE.Cells(1, 1).Value = "Iterácia"
-    wsE.Cells(1, 2).Value = "max|?P|"
-    wsE.Cells(1, 3).Value = "max|?Q|"
-    wsE.Cells(1, 4).Value = "epsilon"
+    lastRow = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
+    If lastRow >= firstDataRow Then
+        ws.Range(ws.Rows(firstDataRow), ws.Rows(lastRow)).Clear
+    End If
 End Sub
 
 ' Flush buffrov napätí / epsilon po skončení NR slučky (jeden Range.Value zápis na list)
@@ -1276,10 +1252,7 @@ Public Sub WriteFinalVoltagesToUzly( _
 
     Set ws = ThisWorkbook.Worksheets("uzly")
 
-    ' hlavičky výsledkov (riadok 2)
-    ws.Cells(2, 8).Value = "|V| výp. [kV]"
-    ws.Cells(2, 9).Value = "? výp. [deg]"
-    
+    ' hlavičky v riadku 2 (H, I) si spravuje používateľ – kód ich needituje
     ' dáta od riadku 3
     For i = 1 To nBuses
         ws.Cells(2 + i, 8).Value = Round(Vmag(i) * BusBaseKV(i), 2)
@@ -1329,13 +1302,7 @@ Public Sub WriteBranchCurrents( _
     
     Set ws = ThisWorkbook.Worksheets("vedenia")
     
-    ' hlavičky stĺpcov - riadok 2, stĺpce Q(17)..U(21)
-    ws.Cells(2, 17).Value = "|I_ij| [A]"
-    ws.Cells(2, 18).Value = "?U [%]"
-    ws.Cells(2, 19).Value = "P_ij [MW]"
-    ws.Cells(2, 20).Value = "Q_ij [MVAr]"
-    ws.Cells(2, 21).Value = "P_str [kW]"
-    
+    ' hlavičky stĺpcov Q(17)..U(21) v riadku 2 si spravuje používateľ – kód ich needituje
     ' vetvy sú v riadkoch 3..(nBranches+2)
     For k = 1 To nBranches
         ' Ak je vedenie vypnuté (Status = 0), zapíšeme nuly
@@ -1574,15 +1541,6 @@ Public Sub WriteTransformerFlows( _
     Dim Ploss_kW As Double
     
     Set ws = ThisWorkbook.Worksheets("transformatory")
-    
-    ' Hlavičky
-    ws.Cells(2, 24).Value = "|I_prim| [A]"
-    ws.Cells(2, 25).Value = "|I_sec| [A]"
-    ws.Cells(2, 26).Value = "P_prim [MW]"
-    ws.Cells(2, 27).Value = "Q_prim [MVAr]"
-    ws.Cells(2, 28).Value = "P_sec [MW]"
-    ws.Cells(2, 29).Value = "Q_sec [MVAr]"
-    ws.Cells(2, 30).Value = "P_str [kW]"
     
     For k = 1 To nTrafo
         i = TrFrom(k) ' Primár (s odbočkou)
@@ -1869,9 +1827,6 @@ Public Sub WriteSwitchResults(ByVal nSwitches As Long, ByRef SwCurrent() As Doub
     Set ws = ThisWorkbook.Worksheets("spinace")
     If ws Is Nothing Then Exit Sub
     On Error GoTo 0
-    
-    ' Hlavička N(14)
-    ws.Cells(2, 14).Value = "I [A]"
     
     For i = 1 To nSwitches
         ws.Cells(i + 2, 14).Value = Round(SwCurrent(i), 2)
