@@ -1,7 +1,7 @@
 Attribute VB_Name = "modTopology"
 '==========================
 ' Modul: modTopology
-' Posledn· ˙prava: 15.02.2026 15:15 (Bratislava)
+' Posledn√° √∫prava: 15.02.2026 15:15 (Bratislava)
 '==========================
 Option Explicit
 
@@ -40,7 +40,7 @@ Public Sub FindIsolatedParts(ByVal nBuses As Long, ByVal nBranches As Long, ByRe
     ReDim adjHead(1 To nBuses), adjNext(1 To totalEdges), adjTo(1 To totalEdges), adjIdx(1 To totalEdges), adjType(1 To totalEdges)
     
     edgeCount = 0
-    ' Pridanie hr·n (vedenia) - iba zapnutÈ
+    ' Pridanie hr√°n (vedenia) - iba zapnut√©
     For i = 1 To nBranches
         If BranchStatus(i) > 0 Then
             u = FromBus(i): v = ToBus(i)
@@ -48,25 +48,25 @@ Public Sub FindIsolatedParts(ByVal nBuses As Long, ByVal nBranches As Long, ByRe
             edgeCount = edgeCount + 1: adjTo(edgeCount) = u: adjIdx(edgeCount) = i: adjType(edgeCount) = 1: adjNext(edgeCount) = adjHead(v): adjHead(v) = edgeCount
         End If
     Next i
-    ' Pridanie hr·n (traf·)
+    ' Pridanie hr√°n (traf√°)
     For i = 1 To nTrafo
         u = TrFrom(i): v = TrTo(i)
         edgeCount = edgeCount + 1: adjTo(edgeCount) = v: adjIdx(edgeCount) = i: adjType(edgeCount) = 2: adjNext(edgeCount) = adjHead(u): adjHead(u) = edgeCount
         edgeCount = edgeCount + 1: adjTo(edgeCount) = u: adjIdx(edgeCount) = i: adjType(edgeCount) = 2: adjNext(edgeCount) = adjHead(v): adjHead(v) = edgeCount
     Next i
-    ' Pridanie hr·n (reaktory)
+    ' Pridanie hr√°n (reaktory)
     For i = 1 To nReaktory
         u = ReaktorFrom(i): v = ReaktorTo(i)
         edgeCount = edgeCount + 1: adjTo(edgeCount) = v: adjIdx(edgeCount) = i: adjType(edgeCount) = 3: adjNext(edgeCount) = adjHead(u): adjHead(u) = edgeCount
         edgeCount = edgeCount + 1: adjTo(edgeCount) = u: adjIdx(edgeCount) = i: adjType(edgeCount) = 3: adjNext(edgeCount) = adjHead(v): adjHead(v) = edgeCount
     Next i
-    ' Pridanie hr·n (dif. reaktory)
+    ' Pridanie hr√°n (dif. reaktory)
     For i = 1 To nDifReaktory
         u = DifReaktorFrom(i): v = DifReaktorTo(i)
         edgeCount = edgeCount + 1: adjTo(edgeCount) = v: adjIdx(edgeCount) = i: adjType(edgeCount) = 4: adjNext(edgeCount) = adjHead(u): adjHead(u) = edgeCount
         edgeCount = edgeCount + 1: adjTo(edgeCount) = u: adjIdx(edgeCount) = i: adjType(edgeCount) = 4: adjNext(edgeCount) = adjHead(v): adjHead(v) = edgeCount
     Next i
-    ' Pridanie hr·n (spÌnaËe) - iba zapnutÈ
+    ' Pridanie hr√°n (sp√≠naƒçe) - iba zapnut√©
     For i = 1 To nSwitches
         If SwStatus(i) > 0 Then
             u = SwFrom(i): v = SwTo(i)
@@ -100,12 +100,12 @@ Public Sub FindIsolatedParts(ByVal nBuses As Long, ByVal nBranches As Long, ByRe
         Loop
     Loop
     
-    ' UrËenie izolovanosti kompenz·cie (podæa uzla)
+    ' Urƒçenie izolovanosti kompenz√°cie (podƒæa uzla)
     For i = 1 To nComp
         IsCompIsolated(i) = IsBusIsolated(CompBus(i))
     Next i
     
-    ' UrËenie izolovanosti motorov (podæa uzla)
+    ' Urƒçenie izolovanosti motorov (podƒæa uzla)
     For i = 1 To nMotors
         IsMotorIsolated(i) = IsBusIsolated(MotorBus(i))
     Next i

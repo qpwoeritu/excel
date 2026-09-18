@@ -446,7 +446,9 @@ Public Sub LoadCompData( _
     Dim statusVal As Variant
     Dim data As Variant
 
-    Set ws = GetOrCreateSheet("kompenzácia")
+    ' Tolerantné hľadanie (diakritika v názve hárku), fallback = vytvorenie
+    Set ws = FindSheetTolerant("kompenzácia")
+    If ws Is Nothing Then Set ws = GetOrCreateSheet("kompenzácia")
 
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     If lastRow < 4 Then
@@ -1034,8 +1036,10 @@ Public Sub WriteCompResults( _
     Dim U_kV As Double
     Dim idxBus As Long
     
-    Set ws = GetOrCreateSheet("kompenzácia")
-    
+    ' Tolerantné hľadanie (diakritika v názve hárku), fallback = vytvorenie
+    Set ws = FindSheetTolerant("kompenzácia")
+    If ws Is Nothing Then Set ws = GetOrCreateSheet("kompenzácia")
+
     For i = 1 To nComp
         idxBus = CompBus(i)
         U_kV = Vmag(idxBus) * BusBaseKV(idxBus)
