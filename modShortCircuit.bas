@@ -182,7 +182,6 @@ End Sub
 Public Sub WriteShortCircuitResults(ByRef Ik_result As Variant, ByVal nBuses As Long)
     Dim ws As Worksheet, i As Long
     Set ws = ThisWorkbook.Worksheets("uzly")
-    ws.Cells(2, 10).Value = "Ik3'' [kA]"
     For i = 1 To nBuses
         ws.Cells(2 + i, 10).Value = Round(Ik_result(i), 2)
     Next i
