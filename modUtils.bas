@@ -146,4 +146,51 @@ Public Function GetBaseVoltageForBus(ByVal V_kV As Double, ByRef VLevels() As Do
     GetBaseVoltageForBus = VLevels(bestK)
 End Function
 
+' Nájde hárok podľa mena s toleranciou na rozbitú diakritiku v kóde:
+' najprv presná zhoda; inak porovnanie po znakoch, kde sa rozdiel toleruje,
+' ak je na niektorej strane ne-ASCII znak alebo '?' (typický následok
+' zlého kódovania pri importe modulu). Vráti Nothing, ak nič nesedí.
+Public Function FindSheetTolerant(ByVal sheetName As String) As Worksheet
+    Dim ws As Worksheet
+    For Each ws In ThisWorkbook.Worksheets
+        If ws.name = sheetName Then
+            Set FindSheetTolerant = ws
+            Exit Function
+        End If
+    Next ws
+    For Each ws In ThisWorkbook.Worksheets
+        If TolerantNameMatch(ws.name, sheetName) Then
+            Set FindSheetTolerant = ws
+            Exit Function
+        End If
+    Next ws
+    Set FindSheetTolerant = Nothing
+End Function
+
+Private Function TolerantNameMatch(ByVal A As String, ByVal B As String) As Boolean
+    Dim i As Long, ca As Long, cb As Long
+    TolerantNameMatch = False
+    If Len(A) <> Len(B) Then Exit Function
+    For i = 1 To Len(A)
+        ca = AscW(Mid$(A, i, 1))
+        cb = AscW(Mid$(B, i, 1))
+        If ca <> cb Then
+            ' rozdiel tolerujeme len na pozícii s ne-ASCII znakom alebo '?'
+            If ca < 128 And cb < 128 And ca <> 63 And cb <> 63 Then Exit Function
+        End If
+    Next i
+    TolerantNameMatch = True
+End Function
+
+' Napäťový faktor c podľa IEC 60909-0, tabuľka 1.
+'   Un <= 1 kV: cmax = 1,05 (tolerancia +6 %), cmin = 0,95
+'   Un >  1 kV: cmax = 1,10, cmin = 1,00
+Public Function GetVoltageFactorC(ByVal Un_kV As Double, ByVal caseMax As Boolean) As Double
+    If Un_kV <= 1# Then
+        If caseMax Then GetVoltageFactorC = 1.05 Else GetVoltageFactorC = 0.95
+    Else
+        If caseMax Then GetVoltageFactorC = 1.1 Else GetVoltageFactorC = 1#
+    End If
+End Function
+
 

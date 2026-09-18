@@ -1,11 +1,11 @@
 Attribute VB_Name = "modSLD"
 '==========================
 ' Modul: modSLD
-' Posledn· ˙prava: 15.02.2026 15:15 (Bratislava)
+' Posledn√° √∫prava: 15.02.2026 15:15 (Bratislava)
 '==========================
 Option Explicit
 
-' Hlavn· proced˙ra pre aktualiz·ciu SLD
+' Hlavn√° proced√∫ra pre aktualiz√°ciu SLD
 Public Sub UpdateSLD()
     Dim startTime As Double
     Dim wsSLD As Worksheet, wsRep As Worksheet, wsIndex As Worksheet
@@ -18,10 +18,10 @@ Public Sub UpdateSLD()
     Dim R As Long, c As Long
     Dim reportRow As Long
     
-    ' Dictionaries pre v˝sledky
-    ' Kæ˙Ë: N·zov zariadenia (bez prefixu? Alebo s prefixom ak je v n·zve?
-    ' Podæa zadania: TAG je "N_NazovUzla", reùazec "N_NazovUzla_P_R".
-    ' Takûe v Dictionary bude kæ˙Ë "N_NazovUzla".
+    ' Dictionaries pre v√Ωsledky
+    ' Kƒæ√∫ƒç: N√°zov zariadenia (bez prefixu? Alebo s prefixom ak je v n√°zve?
+    ' Podƒæa zadania: TAG je "N_NazovUzla", re≈•azec "N_NazovUzla_P_R".
+    ' Tak≈æe v Dictionary bude kƒæ√∫ƒç "N_NazovUzla".
     Dim dictNodes As Object
     Dim dictLines As Object
     Dim dictTrafo As Object
@@ -39,15 +39,15 @@ Public Sub UpdateSLD()
     Set wsSLD = GetOrCreateSheet("SLD")
     Set wsIndex = GetOrCreateSheet("index")
     
-    ' Inicializ·cia reportu ch˝b
+    ' Inicializ√°cia reportu ch√Ωb
     Set wsRep = GetOrCreateSheet("SLD_Report")
     wsRep.Cells.Clear
     wsRep.Cells(1, 1).Value = "Bunka"
-    wsRep.Cells(1, 2).Value = "Reùazec"
+    wsRep.Cells(1, 2).Value = "Re≈•azec"
     wsRep.Cells(1, 3).Value = "Chyba"
     reportRow = 2
     
-    ' NaËÌtanie v˝sledkov do pam‰te
+    ' Naƒç√≠tanie v√Ωsledkov do pam√§te
     Set dictNodes = CreateObject("Scripting.Dictionary")
     Set dictLines = CreateObject("Scripting.Dictionary")
     Set dictTrafo = CreateObject("Scripting.Dictionary")
@@ -60,11 +60,11 @@ Public Sub UpdateSLD()
     
     Call LoadResultsToDict(dictNodes, dictLines, dictTrafo, dictReac, dictDifReac, dictComp, dictMotor, dictGen, dictSwitches)
     
-    ' Iter·cia cez oblasù A1:AS200
-    ' AS je stÂpec 45
-    ' Prehæad·vame po bunk·ch.
-    ' Optimaliz·cia: »Ìtanie vlastnostÌ Font.Color je pomalÈ.
-    ' Sk˙sime ËÌtaù hodnoty do poæa, ale farbu musÌme testovaù na objekte Range.
+    ' Iter√°cia cez oblas≈• A1:AS200
+    ' AS je stƒ∫pec 45
+    ' Prehƒæad√°vame po bunk√°ch.
+    ' Optimaliz√°cia: ƒå√≠tanie vlastnost√≠ Font.Color je pomal√©.
+    ' Sk√∫sime ƒç√≠ta≈• hodnoty do poƒæa, ale farbu mus√≠me testova≈• na objekte Range.
     
     Application.ScreenUpdating = False
     
@@ -72,17 +72,17 @@ Public Sub UpdateSLD()
         For c = 1 To 45 ' A..AS
             Set cell = wsSLD.Cells(R, c)
             
-            ' Kontrola farby pÌsma (biela = 16777215 alebo vbWhite)
+            ' Kontrola farby p√≠sma (biela = 16777215 alebo vbWhite)
             If cell.Font.color = vbWhite Then
                 cellVal = Trim(CStr(cell.Value))
                 If Len(cellVal) > 0 Then
-                    ' Parsovanie reùazca
+                    ' Parsovanie re≈•azca
                     If ParseTagString(cellVal, tag, varType, direction) Then
-                        ' Vyhæadanie hodnoty
+                        ' Vyhƒæadanie hodnoty
                         found = False
                         val = 0
                         
-                        ' Rozhodovanie podæa prefixu TAGu (uvaûujeme prvÈ pÌsmo)
+                        ' Rozhodovanie podƒæa prefixu TAGu (uva≈æujeme prv√© p√≠smo)
                         Dim pChar As String
                         pChar = UCase(Left(tag, 1))
                         
@@ -106,16 +106,16 @@ Public Sub UpdateSLD()
                             found = GetValueFromDict(dictSwitches, tag, varType, val)
 
                         Else
-                            ' Nezn·my prefix
+                            ' Nezn√°my prefix
                             wsRep.Cells(reportRow, 1).Value = cell.Address
                             wsRep.Cells(reportRow, 2).Value = cellVal
-                            wsRep.Cells(reportRow, 3).Value = "Nezn·my prefix zariadenia"
+                            wsRep.Cells(reportRow, 3).Value = "Nezn√°my prefix zariadenia"
                             reportRow = reportRow + 1
                             GoTo NextCell
                         End If
                         
                         If found Then
-                            ' Z·pis do cieæovej bunky
+                            ' Z√°pis do cieƒæovej bunky
                             Dim targetR As Long, targetC As Long
                             targetR = R: targetC = c
                             Select Case UCase(direction)
@@ -129,17 +129,17 @@ Public Sub UpdateSLD()
                                 wsSLD.Cells(targetR, targetC).Value = FormatSLDValue(varType, val)
                             End If
                         Else
-                            ' Hodnota nen·jden· (zlÈ meno alebo premenn·)
+                            ' Hodnota nen√°jden√° (zl√© meno alebo premenn√°)
                             wsRep.Cells(reportRow, 1).Value = cell.Address
                             wsRep.Cells(reportRow, 2).Value = cellVal
-                            wsRep.Cells(reportRow, 3).Value = "Hodnota nen·jden· (Tag: " & tag & ", Var: " & varType & ")"
+                            wsRep.Cells(reportRow, 3).Value = "Hodnota nen√°jden√° (Tag: " & tag & ", Var: " & varType & ")"
                             reportRow = reportRow + 1
                         End If
                     Else
                         ' Chyba parsovania
                         wsRep.Cells(reportRow, 1).Value = cell.Address
                         wsRep.Cells(reportRow, 2).Value = cellVal
-                        wsRep.Cells(reportRow, 3).Value = "Chybn˝ form·t reùazca"
+                        wsRep.Cells(reportRow, 3).Value = "Chybn√Ω form√°t re≈•azca"
                         reportRow = reportRow + 1
                     End If
                 End If
@@ -148,7 +148,7 @@ NextCell:
         Next c
     Next R
     
-    ' Ëas z·pisu do SLD si meria runCALC (zapÌπe do index!J8) ñ tu uæ nezapisujeme do B5.
+    ' ƒças z√°pisu do SLD si meria runCALC (zap√≠ƒÖe do index!J8) ‚Äì tu uƒæ nezapisujeme do B5.
     Application.ScreenUpdating = True
     Exit Sub
 
@@ -157,10 +157,10 @@ ErrHandler:
     Err.Raise Err.Number, "UpdateSLD", Err.Description
 End Sub
 
-' Parsovanie reùazca "TAG_X_Y"
-' Y je smer (posledn˝ segment)
-' X je premenn· (predposledn˝ segment)
-' TAG je zvyöok
+' Parsovanie re≈•azca "TAG_X_Y"
+' Y je smer (posledn√Ω segment)
+' X je premenn√° (predposledn√Ω segment)
+' TAG je zvy≈°ok
 Private Function ParseTagString(ByVal s As String, ByRef tag As String, ByRef varType As String, ByRef direction As String) As Boolean
     Dim parts() As String
     Dim n As Long
@@ -176,7 +176,7 @@ Private Function ParseTagString(ByVal s As String, ByRef tag As String, ByRef va
     direction = parts(n)
     varType = parts(n - 1)
     
-    ' Zloûenie TAGu zo zvyön˝ch ËastÌ (0 aû n-2)
+    ' Zlo≈æenie TAGu zo zvy≈°n√Ωch ƒçast√≠ (0 a≈æ n-2)
     Dim i As Long
     tag = parts(0)
     For i = 1 To n - 2
@@ -186,10 +186,10 @@ Private Function ParseTagString(ByVal s As String, ByRef tag As String, ByRef va
     ParseTagString = True
 End Function
 
-' Pomocn· funkcia na zÌskanie hodnoty z Dictionary
-' Value je pole hodnÙt alebo objekt. Tu predpoklad·m pole Variant/Double indexovanÈ n·zvom premennej?
+' Pomocn√° funkcia na z√≠skanie hodnoty z Dictionary
+' Value je pole hodn√¥t alebo objekt. Tu predpoklad√°m pole Variant/Double indexovan√© n√°zvom premennej?
 ' Alebo Dictionary v Dictionary?
-' Pre jednoduchosù: Value v hlavnom dict bude Dictionary(VarName -> Value)
+' Pre jednoduchos≈•: Value v hlavnom dict bude Dictionary(VarName -> Value)
 Private Function GetValueFromDict(ByVal mainDict As Object, ByVal tag As String, ByVal varType As String, ByRef outVal As Double) As Boolean
     If mainDict.Exists(tag) Then
         Dim props As Object
@@ -203,7 +203,7 @@ Private Function GetValueFromDict(ByVal mainDict As Object, ByVal tag As String,
     GetValueFromDict = False
 End Function
 
-' NaËÌtanie vöetk˝ch v˝sledkov
+' Naƒç√≠tanie v≈°etk√Ωch v√Ωsledkov
 Private Sub LoadResultsToDict(ByRef dN As Object, ByRef dL As Object, ByRef dT As Object, ByRef dR As Object, ByRef dDR As Object, ByRef dC As Object, ByRef dM As Object, ByRef dG As Object, ByRef dQ As Object)
     Dim ws As Worksheet
     Dim lastRow As Long
@@ -213,9 +213,9 @@ Private Sub LoadResultsToDict(ByRef dN As Object, ByRef dL As Object, ByRef dT A
     
     ' 1. Uzly ("uzly")
     ' Prefix "N_"
-    ' StÂpce: B(2)=Name, J(10)=Ik3, K(11)=P_in, L(12)=Q_in, M(13)=I_in, H(8)=V_kV, I(9)=Ang
-    ' Pozn·mka: Zadanie hovorÌ "P, Q, I" pre uzol. MyslÌ sa P_in (bilancia)? ¡no.
-    ' Tieû Ik3.
+    ' Stƒ∫pce: B(2)=Name, J(10)=Ik3, K(11)=P_in, L(12)=Q_in, M(13)=I_in, H(8)=V_kV, I(9)=Ang
+    ' Pozn√°mka: Zadanie hovor√≠ "P, Q, I" pre uzol. Mysl√≠ sa P_in (bilancia)? √Åno.
+    ' Tie≈æ Ik3.
     Set ws = ThisWorkbook.Worksheets("uzly")
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     For i = 3 To lastRow
@@ -223,16 +223,17 @@ Private Sub LoadResultsToDict(ByRef dN As Object, ByRef dL As Object, ByRef dT A
         key = EnsurePrefix(name, "N_")
         Set props = CreateObject("Scripting.Dictionary")
         props("Ik3") = ParseDouble(ws.Cells(i, 10).Value)
+        props("Ikp") = ParseDouble(ws.Cells(i, 14).Value) ' N(14) = ip [kA] (narazovy prud)
         props("P") = ParseDouble(ws.Cells(i, 11).Value)
         props("Q") = ParseDouble(ws.Cells(i, 12).Value)
         props("I") = ParseDouble(ws.Cells(i, 13).Value)
-        props("U") = ParseDouble(ws.Cells(i, 8).Value) ' Nap‰tie
+        props("U") = ParseDouble(ws.Cells(i, 8).Value) ' Nap√§tie
         Set dN(key) = props
     Next i
     
     ' 2. Vedenia ("vedenia")
     ' Prefix "V_"
-    ' StÂpce: B(2)=Name, Q(17)=I, R(18)=dU, S(19)=P, T(20)=Q, U(21)=Ploss
+    ' Stƒ∫pce: B(2)=Name, Q(17)=I, R(18)=dU, S(19)=P, T(20)=Q, U(21)=Ploss
     Set ws = ThisWorkbook.Worksheets("vedenia")
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     For i = 3 To lastRow
@@ -247,19 +248,19 @@ Private Sub LoadResultsToDict(ByRef dN As Object, ByRef dL As Object, ByRef dT A
         Set dL(key) = props
     Next i
     
-    ' 3. Transform·tory ("transformatory")
+    ' 3. Transform√°tory ("transformatory")
     ' Prefix "T_"
-    ' Predpoklad·m, ûe n·zov trafa nie je v liste "transformatory" explicitne (v LoadTransformerData nebol).
-    ' Alebo je v stÂpci B? PÙvodn˝ kÛd ËÌtal C(From), D(To).
-    ' AK nie je n·zov, musÌme ho vytvoriù "From-To"?
-    ' Alebo uûÌvateæ prid· stÂpec B? Zadanie pre SLD hovorÌ "T_Nazov".
-    ' SKONTROLOVAç: LoadTransformerData ËÌta "ws.Cells(i + 2, 3)" ako FromName.
-    ' StÂpec B (2) zvyËajne b˝va Name.
-    ' V pÙvodnom `LoadTransformerData` sa n·zov nenaËÌtaval.
-    ' Predpokladajme, ûe v liste "transformatory" je v B n·zov.
-    ' StÂpce v˝sledkov: X(24)=Iprim, Y(25)=Isec, Z(26)=Pprim, AA(27)=Qprim, AB(28)=Psec, AC(29)=Qsec, AD(30)=Pstr
+    ' Predpoklad√°m, ≈æe n√°zov trafa nie je v liste "transformatory" explicitne (v LoadTransformerData nebol).
+    ' Alebo je v stƒ∫pci B? P√¥vodn√Ω k√≥d ƒç√≠tal C(From), D(To).
+    ' AK nie je n√°zov, mus√≠me ho vytvori≈• "From-To"?
+    ' Alebo u≈æ√≠vateƒæ prid√° stƒ∫pec B? Zadanie pre SLD hovor√≠ "T_Nazov".
+    ' SKONTROLOVA≈§: LoadTransformerData ƒç√≠ta "ws.Cells(i + 2, 3)" ako FromName.
+    ' Stƒ∫pec B (2) zvyƒçajne b√Ωva Name.
+    ' V p√¥vodnom `LoadTransformerData` sa n√°zov nenaƒç√≠taval.
+    ' Predpokladajme, ≈æe v liste "transformatory" je v B n√°zov.
+    ' Stƒ∫pce v√Ωsledkov: X(24)=Iprim, Y(25)=Isec, Z(26)=Pprim, AA(27)=Qprim, AB(28)=Psec, AC(29)=Qsec, AD(30)=Pstr
     Set ws = ThisWorkbook.Worksheets("transformatory")
-    lastRow = ws.Cells(ws.Rows.Count, 3).End(xlUp).Row ' Podæa From
+    lastRow = ws.Cells(ws.Rows.Count, 3).End(xlUp).Row ' Podƒæa From
     For i = 3 To lastRow
         name = CStr(ws.Cells(i, 2).Value) ' Predpoklad B
         If name = "" Then name = "Trafo" & (i - 2) ' Fallback
@@ -277,7 +278,7 @@ Private Sub LoadResultsToDict(ByRef dN As Object, ByRef dL As Object, ByRef dT A
     
     ' 4. Reaktory ("reaktory")
     ' Prefix "R_"
-    ' B(2)=Name. V˝sledky: Z(26)=I, AA(27)=dU, AB(28)=P, AC(29)=Q, AD(30)=Pstr
+    ' B(2)=Name. V√Ωsledky: Z(26)=I, AA(27)=dU, AB(28)=P, AC(29)=Q, AD(30)=Pstr
     Set ws = ThisWorkbook.Worksheets("reaktory")
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     For i = 3 To lastRow
@@ -294,11 +295,11 @@ Private Sub LoadResultsToDict(ByRef dN As Object, ByRef dL As Object, ByRef dT A
     
     ' 5. Dif. Reaktory ("dif_reaktory")
     ' Prefix "DR_"
-    ' N·zov? LoadDifReactorData d·val "DR" & i.
-    ' Ale v liste mÙûe byù stÂpec B (voæn˝/Name)?
-    ' PÙvodn˝ kÛd: B nie je pouûit˝ (C=From).
-    ' Predpokladajme, ûe uûÌvateæ tam d· n·zov do B.
-    ' V˝sledky: X(24)=I, Y(25)=dU, Z(26)=P, AA(27)=Q, AB(28)=Pstr
+    ' N√°zov? LoadDifReactorData d√°val "DR" & i.
+    ' Ale v liste m√¥≈æe by≈• stƒ∫pec B (voƒæn√Ω/Name)?
+    ' P√¥vodn√Ω k√≥d: B nie je pou≈æit√Ω (C=From).
+    ' Predpokladajme, ≈æe u≈æ√≠vateƒæ tam d√° n√°zov do B.
+    ' V√Ωsledky: X(24)=I, Y(25)=dU, Z(26)=P, AA(27)=Q, AB(28)=Pstr
     Set ws = ThisWorkbook.Worksheets("dif_reaktory")
     lastRow = ws.Cells(ws.Rows.Count, 3).End(xlUp).Row
     For i = 3 To lastRow
@@ -314,30 +315,35 @@ Private Sub LoadResultsToDict(ByRef dN As Object, ByRef dL As Object, ByRef dT A
         Set dDR(key) = props
     Next i
     
-    ' 6. Kompenz·cia ("kompenz·cia")
+    ' 6. Kompenz√°cia ("kompenz√°cia")
     ' Prefix "K_"
-    ' B(2)=Name. V˝sledok: O(15)=U [kV].
-    ' »o Ôalöie? P, Q?
-    ' V WriteCompResults sa pÌöe len U.
-    ' V NR sa poËÌta Q_flow. Ale nezapisuje sa do riadku kompenz·cie, len do sumy uzla.
-    ' Ak chceme Q kompenz·cie, musÌme dopoËÌtaù: Q = U^2 * B_comp.
-    ' Zatiaæ implementujem U. Ak bude treba Q, treba doplniù v˝poËet.
-    Set ws = ThisWorkbook.Worksheets("kompenz·cia")
+    ' B(2)=Name. V√Ωsledok: O(15)=U [kV].
+    ' ƒåo ƒèal≈°ie? P, Q?
+    ' V WriteCompResults sa p√≠≈°e len U.
+    ' V NR sa poƒç√≠ta Q_flow. Ale nezapisuje sa do riadku kompenz√°cie, len do sumy uzla.
+    ' Ak chceme Q kompenz√°cie, mus√≠me dopoƒç√≠ta≈•: Q = U^2 * B_comp.
+    ' Zatiaƒæ implementujem U. Ak bude treba Q, treba doplni≈• v√Ωpoƒçet.
+    ' Tolerantn√© hƒæadanie ‚Äì n√°zov h√°rku m√° diakritiku a pri zlom k√≥dovan√≠
+    ' importovan√©ho modulu by priamy pr√≠stup skonƒçil chybou 9 (subscript).
+    Set ws = FindSheetTolerant("kompenz√°cia")
+    If ws Is Nothing Then
+        Err.Raise vbObjectError + 35, "LoadResultsToDict", "H√°rok 'kompenz√°cia' sa nena≈°iel."
+    End If
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     For i = 3 To lastRow
         name = CStr(ws.Cells(i, 2).Value)
         key = EnsurePrefix(name, "K_")
         Set props = CreateObject("Scripting.Dictionary")
         props("U") = ParseDouble(ws.Cells(i, 15).Value)
-        ' DoplnÌme Q pre ˙plnosù (pribliûne)
+        ' Dopln√≠me Q pre √∫plnos≈• (pribli≈æne)
         ' Q [Mvar] = (U[kV])^2 * B[S] ? Nie, B v liste je v p.u. alebo S?
-        ' LoadCompData naËÌta XC, XL.
+        ' LoadCompData naƒç√≠ta XC, XL.
         Set dC(key) = props
     Next i
     
     ' 7. Motory VN ("motoryVN")
     ' Prefix "M_"
-    ' B(2)=Name. V˝sledky: AD(30)=I, AE(31)=Ploss.
+    ' B(2)=Name. V√Ωsledky: AD(30)=I, AE(31)=Ploss.
     ' P, Q?
     Set ws = ThisWorkbook.Worksheets("motoryVN")
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
@@ -350,9 +356,9 @@ Private Sub LoadResultsToDict(ByRef dN As Object, ByRef dL As Object, ByRef dT A
         Set dM(key) = props
     Next i
     
-    ' 8. Gener·tory ("generatory")
+    ' 8. Gener√°tory ("generatory")
     ' Prefix "G_"
-    ' B(2)=Name. V˝sledok: N(14)=Q_gen. M(13)=P_gen.
+    ' B(2)=Name. V√Ωsledok: N(14)=Q_gen. M(13)=P_gen.
     Set ws = ThisWorkbook.Worksheets("generatory")
     lastRow = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
     For i = 3 To lastRow
@@ -365,9 +371,9 @@ Private Sub LoadResultsToDict(ByRef dN As Object, ByRef dL As Object, ByRef dT A
     Next i
     
 
-    ' 9. SpÌnaËe ("spinace")
+    ' 9. Sp√≠naƒçe ("spinace")
     ' Prefix "Q_"
-    ' B(2)=Name. V˝sledok: N(14)=I [A].
+    ' B(2)=Name. V√Ωsledok: N(14)=I [A].
     On Error Resume Next
     Set ws = ThisWorkbook.Worksheets("spinace")
     If Not ws Is Nothing Then
@@ -384,17 +390,17 @@ Private Sub LoadResultsToDict(ByRef dN As Object, ByRef dL As Object, ByRef dT A
 End Sub
 
 
-' Odkryt_tagy - zmena pÌsma na Ëierne pre tagy s aspoÚ 2 podtrûnÌkmi
+' Odkryt_tagy - zmena p√≠sma na ƒçierne pre tagy s aspo≈à 2 podtr≈æn√≠kmi
 Public Sub Odkryt_tagy()
     Call ChangeTagsFontColor(vbBlack)
 End Sub
 
-' Skryt_tagy - zmena pÌsma na biele pre tagy s aspoÚ 2 podtrûnÌkmi
+' Skryt_tagy - zmena p√≠sma na biele pre tagy s aspo≈à 2 podtr≈æn√≠kmi
 Public Sub Skryt_tagy()
     Call ChangeTagsFontColor(vbWhite)
 End Sub
 
-' Pomocn· proced˙ra pre zmenu farby pÌsma tagov
+' Pomocn√° proced√∫ra pre zmenu farby p√≠sma tagov
 Private Sub ChangeTagsFontColor(ByVal color As Long)
     Dim wsSLD As Worksheet
     Dim R As Long, c As Long
@@ -408,12 +414,12 @@ Private Sub ChangeTagsFontColor(ByVal color As Long)
     
     Application.ScreenUpdating = False
     
-    ' Iter·cia cez rovnak˝ rozsah ako v UpdateSLD (A1:AS200)
+    ' Iter√°cia cez rovnak√Ω rozsah ako v UpdateSLD (A1:AS200)
     For R = 1 To 200
         For c = 1 To 45 ' A..AS
             cellVal = Trim(CStr(wsSLD.Cells(R, c).Value))
             If Len(cellVal) > 0 Then
-                ' Kontrola na aspoÚ 2 podtrûnÌkmi
+                ' Kontrola na aspo≈à 2 podtr≈æn√≠kmi
                 parts = Split(cellVal, "_")
                 If UBound(parts) >= 2 Then
                     wsSLD.Cells(R, c).Font.color = color
@@ -426,13 +432,15 @@ Private Sub ChangeTagsFontColor(ByVal color As Long)
 End Sub
 
 
-' Form·tovanie hodnoty pre SLD podæah typu veliËiny
+' Form√°tovanie hodnoty pre SLD podƒæah typu veliƒçiny
 Private Function FormatSLDValue(ByVal varType As String, ByVal val As Double) As String
     Dim res As String
     
     Select Case UCase(Trim(varType))
         Case "IK3"
             res = "Ik3= " & Format(val, "0.0") & " kA"
+        Case "IKP" ' narazovy skratovy prud uzla (tag napr. N_meno_Ikp_R)
+            res = "ip= " & Format(val, "0.0") & " kA"
         Case "P"
             res = "P= " & Format(val, "0.0") & " MW"
         Case "Q"
@@ -464,7 +472,7 @@ Private Function FormatSLDValue(ByVal varType As String, ByVal val As Double) As
     FormatSLDValue = res
 End Function
 
-' Pomocn· funkcia na zabezpeËenie prefixu v kæ˙Ëi (zabraÚuje zdvojovaniu napr. V_V_...)
+' Pomocn√° funkcia na zabezpeƒçenie prefixu v kƒæ√∫ƒçi (zabra≈àuje zdvojovaniu napr. V_V_...)
 Private Function EnsurePrefix(ByVal name As String, ByVal prefix As String) As String
     If UCase(Left(name, Len(prefix))) = UCase(prefix) Then
         EnsurePrefix = name

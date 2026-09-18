@@ -1,11 +1,11 @@
 Attribute VB_Name = "modTypes"
 '==========================
 ' Modul: modTypes
-' Posledn· ˙prava: 15.02.2026 15:15 (Bratislava)
+' Posledn√° √∫prava: 15.02.2026 15:15 (Bratislava)
 '==========================
 Option Explicit
 
-' ätrukt˙ra pre komplexnÈ ËÌslo v kartezi·nskom tvare
+' ≈†trukt√∫ra pre komplexn√© ƒç√≠slo v kartezi√°nskom tvare
 Public Type Complex
     Re As Double
     Im As Double
@@ -18,7 +18,7 @@ Public Enum BusType
     btPV = 2
 End Enum
 
-' Konötanty pre pr·cu s uhlami
+' Kon≈°tanty pre pr√°cu s uhlami
 Public Const PI As Double = 3.14159265358979
 Public Const DEG2RAD As Double = PI / 180#
 Public Const RAD2DEG As Double = 180# / PI
