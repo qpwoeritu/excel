@@ -33,7 +33,7 @@ Implementácia odporúčaní z kap. 4.4 reportu [`porovnanie_pandapower.md`](por
 | Fiktívny odpor generátora | R_Gf = 0,07·Xd'' ak R_G nie je zadaný | VN generátory S_rG < 100 MVA; potrebný pre korektné ip |
 | Motory VN (čl. 6.5) | Z_M zo stĺpca P; R_M zo stĺpca L, inak R_M/X_M = 0,1 | **v min prípade sa príspevky motorov zanedbávajú** |
 | Nárazový prúd ip (čl. 8) | ip = κ·√2·Ik''; κ = min(1,15·κ_b, 2,0) pre VN (1,8 pre NN), κ_b = 1,02 + 0,98·e^(−3·R/X) | metóda B pre zauzlené siete (konzervatívna); R/X z Théveninovej impedancie v mieste skratu |
-| Vetvové príspevky | I_f = c_f/Z_ff; V_i = c_f − Z_if·I_f; I_vetvy = (V_i − V_j)·y_s | metóda ekvivalentného napäťového zdroja; trafo cez ys/a², ys/a; motory/generátory I = V·y |
+| Vetvové príspevky | I_f = c_f/Z_ff; ΔV_i = −Z_if·I_f; I_vetvy = (ΔV_i − ΔV_j)·y_s | superpozícia — prúdy z **poruchovej zložky** napätí ΔV (predporuchový stav naprázdno = 0 A; plochý profil c sa nepripočítava, pri trafách s odbočkou by dával fantómové prúdy); trafo cez ys/a², ys/a; motory/generátory I = ΔV·y; riadky pod 0,005 kA sa nezapisujú |
 
 ## Spätná kompatibilita a zmeny výsledkov
 

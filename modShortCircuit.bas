@@ -272,10 +272,15 @@ End Sub
 '--------------------------------------
 ' Vetvové príspevky pri skrate vo zvolenom uzle f (metóda ekvivalentného
 ' napäťového zdroja, IEC 60909):
-'   I_f = c_f / Z_ff          (p.u.)
-'   V_i = c_f - Z_if · I_f    (napätia počas skratu; predporuchovo naprázdno)
-'   vetvy: I = (V_i - V_j)·y_s (bez B/2), trafo cez ys/a², ys/a,
-'   motory I = V_i·y_M (len max prípad), generátory I = V_t·y_G.
+'   I_f  = c_f / Z_ff          (p.u.)
+'   dV_i = -Z_if · I_f         (PORUCHOVÁ ZLOŽKA napätí - superpozícia:
+'          celkový prúd vetvy = predporuchový (naprázdno = 0) + zložka z dV.
+'          Plochý profil c_f sa NESMIE pripočítať: pri trafách s prevodom
+'          a <> 1 by dával fantómový prúd c·ys·(1-a)/a² aj vo vetvách,
+'          ktoré s poruchou nesúvisia.)
+'   vetvy: I = (dV_i - dV_j)·y_s (bez B/2), trafo cez ys/a², ys/a,
+'   motory I = dV_i·y_M (len max prípad), generátory I = dV_t·y_G
+'   (v uzle poruchy |dV_f| = c_f, ďaleko od poruchy dV -> 0).
 ' Kvôli limitu VBA (max. 60 parametrov na procedúru) je výpočet rozdelený
 ' na sekvenciu procedúr so zdieľaným Private stavom modulu (deklarácie hore):
 '   BranchContribBegin -> BranchContribSeries / ...Trafo / ...Motors / ...Gens
@@ -301,10 +306,11 @@ Public Sub BranchContribBegin( _
     m_bcCF = GetVoltageFactorC(CDbl(BusBaseKV(faultBus)), caseMax)
     If_pu = CDiv(CCreate(m_bcCF, 0), Zff)
 
-    ' Napätia uzlov počas skratu: V_i = c_f - Z_if·I_f
+    ' Poruchová zložka napätí: dV_i = -Z_if·I_f (bez pripočítania c_f -
+    ' viď hlavičkový komentár; fantómové prúdy tráf s odbočkou)
     ReDim m_bcVbus(1 To nBuses)
     For i = 1 To nBuses
-        m_bcVbus(i) = CSub(CCreate(m_bcCF, 0), CMul(Z_inv(i, faultBus), If_pu))
+        m_bcVbus(i) = CSub(CCreate(0, 0), CMul(Z_inv(i, faultBus), If_pu))
     Next i
 
     If maxRows < 1 Then maxRows = 1
@@ -516,8 +522,10 @@ Public Sub BranchContribFinish( _
     ws.Cells(rw, 2).Resize(1, 6).Font.Bold = True
 
     For i = 1 To m_bcN
-        rw = rw + 1
         k = idx(i)
+        ' zoradené zostupne - pod prahom zaokrúhlenia (0,005 kA) už nič nezapisuj
+        If MaxD(m_bcIOd(k), m_bcIDo(k)) < 0.005 Then Exit For
+        rw = rw + 1
         ws.Cells(rw, 2).Value = m_bcTyp(k)
         ws.Cells(rw, 3).Value = m_bcNm(k)
         ws.Cells(rw, 4).Value = m_bcOd(k)
