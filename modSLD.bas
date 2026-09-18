@@ -223,6 +223,7 @@ Private Sub LoadResultsToDict(ByRef dN As Object, ByRef dL As Object, ByRef dT A
         key = EnsurePrefix(name, "N_")
         Set props = CreateObject("Scripting.Dictionary")
         props("Ik3") = ParseDouble(ws.Cells(i, 10).Value)
+        props("Ikp") = ParseDouble(ws.Cells(i, 14).Value) ' N(14) = ip [kA] (narazovy prud)
         props("P") = ParseDouble(ws.Cells(i, 11).Value)
         props("Q") = ParseDouble(ws.Cells(i, 12).Value)
         props("I") = ParseDouble(ws.Cells(i, 13).Value)
@@ -433,6 +434,8 @@ Private Function FormatSLDValue(ByVal varType As String, ByVal val As Double) As
     Select Case UCase(Trim(varType))
         Case "IK3"
             res = "Ik3= " & Format(val, "0.0") & " kA"
+        Case "IKP" ' narazovy skratovy prud uzla (tag napr. N_meno_Ikp_R)
+            res = "ip= " & Format(val, "0.0") & " kA"
         Case "P"
             res = "P= " & Format(val, "0.0") & " MW"
         Case "Q"

@@ -159,8 +159,12 @@ def main():
     print("\n=== Vedenia (p_from_mw, q_from_mvar, i_ka, pl_mw) ===")
     print(net.res_line.join(net.line["name"]).to_string())
 
-    # 2) skraty IEC 60909 — porovnať s uzly!J z VBA behu (mode 2)
-    sc.calc_sc(net, fault="3ph", case="max", ip=True, branch_results=False)
+    # 2) skraty IEC 60909 — porovnať s uzly!J (Ik'') a uzly!N (ip) z VBA behu (mode 2).
+    # VBA počíta ip metódou B pre zauzlené siete -> pre porovnanie ip treba
+    # kappa_method="B" a topology="meshed" (pandapower default je metóda C);
+    # Ik'' je od metódy kappa nezávislý.
+    sc.calc_sc(net, fault="3ph", case="max", ip=True, branch_results=False,
+               topology="meshed", kappa_method="B")
     print("\n=== Ik'' [kA] a ip [kA] po uzloch (IEC 60909, case=max) ===")
     print(net.res_bus_sc.join(net.bus["name"]).to_string())
 

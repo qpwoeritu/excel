@@ -116,13 +116,15 @@ Samotná kostra vzorcov je správna, takže systematická odchýlka ~20 % s najv
 
 **Odporúčaný postup overenia:** exportovať sieť do pandapower (kap. 6), spustiť `calc_sc(net, fault="3ph", case="max")` a porovnať Ik'' po uzloch. pandapower aplikuje K_T/K_G/R-X korekcie automaticky — rozdiel oproti VBA výsledkom priamo ukáže, ktorá korekcia koľko percent nesie.
 
-### 4.4 Návrh úprav VBA (na samostatné schválenie, bez implementácie teraz)
+### 4.4 Návrh úprav VBA — ✅ IMPLEMENTOVANÉ
 
-1. c-faktor ako parameter podľa hladiny + prípad max/min (nová bunka v `index`).
-2. K_T pre transformátory (vstupy už existujú: uk, Sn — výpočet x_T je triviálny) a K_G pre generátory v `BuildShortCircuitMatrix`.
-3. R/X = 0,1 pre sieťový napájač a motory (namiesto čistej reaktancie).
-4. Výpočet ip (κ z R/X Théveninovej impedancie — R_th a X_th už kód má v `modShortCircuit.bas:169-171`, dnes ich nevyužíva) — **lacná úprava s veľkou hodnotou**.
-5. Vetvové príspevky skratu z Z_inv stĺpca postihnutého uzla.
+Všetkých 5 bodov je implementovaných (podrobnosti a nové vstupy/výstupy: [`skraty_iec60909.md`](skraty_iec60909.md)); vzorce numericky validované proti pandapower 3.5.4 so zhodou 0,00 % pre Ik'' aj ip v max aj min prípade:
+
+1. ✅ c-faktor podľa hladiny + prípad max/min (`index!G6`, `GetVoltageFactorC` v `modUtils.bas`).
+2. ✅ K_T pre transformátory (len max prípad, podľa IEC 60909-0 čl. 6.3.3) a K_G pre generátory (nové stĺpce `generatory!T` = Sn_G, `U` = cosφ_r).
+3. ✅ R/X pre sieťový napájač (`data!K15`, default 0,1) a motory (R zo stĺpca L, inak 0,1); motory sa v min prípade zanedbávajú.
+4. ✅ Nárazový prúd ip metódou B (κ = min(1,15·κ_b, 2,0)) do `uzly!N`.
+5. ✅ Vetvové príspevky skratu pre zvolený uzol (`index!G7`) do nového hárku `skrat_vetvy`.
 
 ---
 

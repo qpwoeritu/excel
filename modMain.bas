@@ -59,10 +59,12 @@ Public Sub runCALC()
     Dim BranchStatus() As Integer
 
     Dim nTrafo As Long
+    Dim TrName() As String
     Dim TrFrom() As Long, TrTo() As Long
     Dim TrR() As Double, TrX() As Double
     Dim TrG() As Double, TrB() As Double
     Dim TrRatio() As Double
+    Dim TrKT() As Double
 
     Dim nReaktory As Long
     Dim ReaktorName() As String
@@ -104,6 +106,7 @@ Public Sub runCALC()
     Dim GenRa() As Double, GenXs() As Double, GenXd() As Double
     Dim GenP() As Double, GenQref() As Double, GenVref() As Double
     Dim GenEmag() As Double, GenPint() As Double
+    Dim GenKG() As Double
 
     ' Rozšírené polia pre NR (reálne uzly + fantómové PV uzly EMF generátorov)
     Dim nBusNR As Long
@@ -134,7 +137,11 @@ Public Sub runCALC()
     Dim G() As Double, B() As Double
 
     Dim Ysc() As Complex
-    Dim Ik_input() As Double, Ik_result As Variant
+    Dim Ik_input() As Double, Ik_result As Variant, ip_result As Variant
+    Dim Z_inv() As Complex
+    Dim caseMax As Boolean, faultBusName As String
+    Dim IkFeederMax As Double, IkFeederMin As Double, RXfeeder As Double
+    Dim faultBusIdx As Long, slackIdx As Long
     Dim ws As Worksheet
     Dim i As Long
 
@@ -212,17 +219,18 @@ Public Sub runCALC()
     Application.ScreenUpdating = True: DoEvents: Application.ScreenUpdating = False
     t0 = Timer
 
+    Call ResetCalcWarnings
     Call GetBaseValues(SBase_MVA, VLevels)
     Call LoadBusData(nBuses, BusNames, BusTypes, Vmag, Vang, Pspec, Qspec, BusBaseKV, SBase_MVA, VLevels, busDict)
     Call LoadBranchData(nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, BusNames, BusBaseKV, SBase_MVA, Bshunt, busDict)
-    Call LoadTransformerData(nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, BusNames, BusBaseKV, SBase_MVA, busDict)
+    Call LoadTransformerData(nTrafo, TrName, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, TrKT, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadReactorData(nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadDifReactorData(nDifReaktory, DifReaktorName, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadSwitchData(nSwitches, SwitchName, SwFrom, SwTo, SwR, SwX, SwStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadCompData(nComp, CompName, CompBus, CompB, CompStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadMotorData(nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorG, MotorB, MotorStatus, BusNames, BusBaseKV, SBase_MVA, busDict)
     Call LoadGeneratorData(nGens, GenName, GenTermBus, GenMode, GenStatus, _
-                           GenRa, GenXs, GenXd, GenP, GenQref, GenVref, GenEmag, GenPint, _
+                           GenRa, GenXs, GenXd, GenP, GenQref, GenVref, GenEmag, GenPint, GenKG, _
                            BusNames, BusBaseKV, SBase_MVA, busDict)
 
     Call FindIsolatedParts(nBuses, nBranches, FromBus, ToBus, BranchStatus, _
@@ -239,6 +247,7 @@ Public Sub runCALC()
                               nBranches, FromBus, ToBus, IsBranchIsolated, _
                               nTrafo, TrFrom, TrTo, IsTrafoIsolated, _
                               nComp, CompBus, IsCompIsolated)
+    Call FlushCalcWarnings
 
     Call WritePhaseTime(wsIdx.Range("J3"), Timer - t0)
     Call SetPhase(phaseCell, psDone)
@@ -282,7 +291,10 @@ Public Sub runCALC()
                        BusNamesNR, IsBusIsolatedNR, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, _
                        Y, G, B)
     Else
-        ' Pre skraty: načítaj Ik_input zo stĺpca J listu uzly (pre slack)
+        ' Pre skraty: nastavenia IEC 60909 (prípad max/min, uzol poruchy, napájač)
+        Call LoadShortCircuitSettings(caseMax, faultBusName, IkFeederMax, IkFeederMin, RXfeeder)
+
+        ' Načítaj Ik_input zo stĺpca J listu uzly (spätná kompatibilita pre slack)
         ReDim Ik_input(1 To nBuses)
         Set ws = ThisWorkbook.Worksheets("uzly")
         If nBuses = 1 Then
@@ -295,14 +307,36 @@ Public Sub runCALC()
             Next i
         End If
 
+        ' Ik'' napájača z data!K13/K14 podľa prípadu (má prednosť pred uzly!J,
+        ' ktorý sa každým behom prepisuje výsledkami)
+        slackIdx = 0
+        For i = 1 To nBuses
+            If BusTypes(i) = btSlack Then slackIdx = i: Exit For
+        Next i
+        If slackIdx > 0 Then
+            If caseMax Then
+                If IkFeederMax > 0# Then Ik_input(slackIdx) = IkFeederMax
+            Else
+                If IkFeederMin > 0# Then
+                    Ik_input(slackIdx) = IkFeederMin
+                ElseIf IkFeederMax > 0# Then
+                    Ik_input(slackIdx) = IkFeederMax
+                    Call AddCalcWarning("Prípad min: chýba Ik''min napájača v data!K14 - použitá hodnota Ik''max z data!K13.")
+                Else
+                    Call AddCalcWarning("Prípad min: chýba Ik''min napájača v data!K14 - použitá hodnota z uzly!J (riadok slacku).")
+                End If
+            End If
+        End If
+
         Call BuildShortCircuitMatrix(nBuses, nBranches, FromBus, ToBus, R, X, BranchStatus, _
                                      nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
-                                     nTrafo, TrFrom, TrTo, TrR, TrX, TrRatio, _
+                                     nTrafo, TrFrom, TrTo, TrR, TrX, TrRatio, TrKT, _
                                      nReaktory, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, _
                                      nDifReaktory, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, _
-                                     nMotors, MotorBus, MotorXk, MotorStatus, _
-                                     nGens, GenTermBus, GenStatus, GenRa, GenXd, _
+                                     nMotors, MotorBus, MotorR, MotorXk, MotorStatus, _
+                                     nGens, GenTermBus, GenStatus, GenRa, GenXd, GenKG, _
                                      BusNames, BusTypes, BusBaseKV, Ik_input, SBase_MVA, _
+                                     caseMax, RXfeeder, _
                                      IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, _
                                      Ysc)
     End If
@@ -352,8 +386,32 @@ Public Sub runCALC()
 
         Call BeginPhaseTimer(wsIdx.Range("J7"))
 
-        Call SolveShortCircuit(Ysc, nBuses, BusBaseKV, SBase_MVA, IsBusIsolated, Ik_result)
-        Call WriteShortCircuitResults(Ik_result, nBuses)
+        Call SolveShortCircuit(Ysc, nBuses, BusNames, BusBaseKV, SBase_MVA, caseMax, IsBusIsolated, Ik_result, ip_result, Z_inv)
+        Call WriteShortCircuitResults(Ik_result, ip_result, nBuses)
+
+        ' Vetvové príspevky pre zvolený uzol poruchy (index!G7, voliteľné)
+        If Len(faultBusName) > 0 Then
+            faultBusIdx = GetBusIndexD(faultBusName, busDict)
+            If faultBusIdx = 0 Then
+                Err.Raise vbObjectError + 32, , "Uzol poruchy '" & faultBusName & "' z index!G7 neexistuje v liste 'uzly'."
+            End If
+            If IsBusIsolated(faultBusIdx) Then
+                Err.Raise vbObjectError + 33, , "Uzol poruchy '" & faultBusName & "' z index!G7 je izolovaný od slacku."
+            End If
+            Call ComputeBranchContributions(faultBusIdx, nBuses, Z_inv, caseMax, SBase_MVA, _
+                                            BusNames, BusBaseKV, IsBusIsolated, _
+                                            nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, IsBranchIsolated, _
+                                            nSwitches, SwitchName, SwFrom, SwTo, SwR, SwX, SwStatus, IsSwitchIsolated, _
+                                            nTrafo, TrName, TrFrom, TrTo, TrR, TrX, TrRatio, TrKT, IsTrafoIsolated, _
+                                            nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, IsReaktorIsolated, _
+                                            nDifReaktory, DifReaktorName, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, IsDifReaktorIsolated, _
+                                            nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorStatus, _
+                                            nGens, GenName, GenTermBus, GenStatus, GenRa, GenXd, GenKG, _
+                                            Ik_result, ip_result)
+        End If
+
+        ' Varovania z fázy 2/3 (napájač, kappa) - report je už zapísaný z fázy 1
+        Call FlushCalcWarnings
 
         Call WritePhaseTime(wsIdx.Range("J7"), PhaseElapsed)
         Call EndPhaseTimer

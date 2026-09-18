@@ -1,5 +1,34 @@
 Option Explicit
 
+' Zberné pole varovaní výpočtu (napr. chýbajúce údaje pre korekcie K_T/K_G).
+' Plní sa cez AddCalcWarning, do hárku "report" ho vypíše FlushCalcWarnings
+' (volať až po WriteIsolationReport, ktorý hárok čistí).
+Private m_warnings As Collection
+
+Public Sub ResetCalcWarnings()
+    Set m_warnings = Nothing
+End Sub
+
+Public Sub AddCalcWarning(ByVal msg As String)
+    If m_warnings Is Nothing Then Set m_warnings = New Collection
+    m_warnings.Add msg
+End Sub
+
+Public Sub FlushCalcWarnings()
+    Dim ws As Worksheet
+    Dim R As Long
+    Dim v As Variant
+    If m_warnings Is Nothing Then Exit Sub
+    If m_warnings.Count = 0 Then Exit Sub
+    Set ws = GetOrCreateSheet("report")
+    R = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row + 2
+    For Each v In m_warnings
+        ws.Cells(R, 2).Value = "Varovanie: " & CStr(v)
+        R = R + 1
+    Next v
+    Set m_warnings = Nothing
+End Sub
+
 ' Načítanie dát uzlov z listu "uzly"
 ' Skutočné hodnoty -> prepočet do pomerných (p.u.)
 '
@@ -101,6 +130,7 @@ End Sub
 ' Ak je prítomný stĺpec Zk (napr. na pozícii 18), posun +1.
 Public Sub LoadTransformerData( _
     ByRef nTrafo As Long, _
+    ByRef TrName() As String, _
     ByRef TrFrom() As Long, _
     ByRef TrTo() As Long, _
     ByRef TrR() As Double, _
@@ -108,6 +138,7 @@ Public Sub LoadTransformerData( _
     ByRef TrG() As Double, _
     ByRef TrB() As Double, _
     ByRef TrRatio() As Double, _
+    ByRef TrKT() As Double, _
     ByRef BusNames() As String, _
     ByRef BusBaseKV() As Double, _
     ByVal SBase_MVA As Double, _
@@ -125,6 +156,8 @@ Public Sub LoadTransformerData( _
     Dim colOffset As Long
     Dim data As Variant
     Dim lastCol As Long
+    Dim Sn_tr As Double, U1n_kV As Double
+    Dim x_t As Double
 
     Set ws = ThisWorkbook.Worksheets("transformatory")
 
@@ -136,6 +169,7 @@ Public Sub LoadTransformerData( _
 
     nTrafo = lastRow - 2
 
+    ReDim TrName(1 To nTrafo)
     ReDim TrFrom(1 To nTrafo)
     ReDim TrTo(1 To nTrafo)
     ReDim TrR(1 To nTrafo)
@@ -143,6 +177,7 @@ Public Sub LoadTransformerData( _
     ReDim TrG(1 To nTrafo)
     ReDim TrB(1 To nTrafo)
     ReDim TrRatio(1 To nTrafo)
+    ReDim TrKT(1 To nTrafo)
 
     ' Detekcia posunu stĺpcov:
     If InStr(1, LCase(CStr(ws.Cells(2, 18).Value)), "zk") > 0 Then
@@ -156,6 +191,7 @@ Public Sub LoadTransformerData( _
     data = ws.Range(ws.Cells(3, 3), ws.Cells(lastRow, lastCol)).Value
 
     For i = 1 To nTrafo
+        TrName(i) = CStr(ws.Cells(2 + i, 2).Value)          ' B: označenie trafa
         fromName = CStr(data(i, 1))                         ' C: Uzol od
         toName = CStr(data(i, 2))                           ' D: Uzol do
 
@@ -202,6 +238,23 @@ Public Sub LoadTransformerData( _
         ' Prevod a
         TrRatio(i) = ParseDouble(data(i, 20 + colOffset))
         If TrRatio(i) <= 0# Then TrRatio(i) = 1#
+
+        ' Korekčný faktor impedancie K_T (IEC 60909-0, čl. 6.3.3):
+        '   x_T = Xk·Sn/U1n²  (relatívna reaktancia na báze trafa)
+        '   K_T = 0,95·cmax/(1 + 0,6·x_T), cmax podľa hladiny NN strany (uzol "do")
+        ' Aplikuje sa len v skratovom výpočte pre prípad max (v BuildShortCircuitMatrix).
+        Sn_tr = ParseDouble(data(i, 3))                     ' E: Sn [MVA]
+        U1n_kV = ParseDouble(data(i, 4))                    ' F: U1n [kV]
+        If Sn_tr > 0# And U1n_kV > 0# And X_ohm > 0# Then
+            x_t = X_ohm * Sn_tr / (U1n_kV * U1n_kV)
+            TrKT(i) = 0.95 * GetVoltageFactorC(BusBaseKV(idxTo), True) / (1# + 0.6 * x_t)
+        Else
+            TrKT(i) = 1#
+            If R_ohm <> 0# Or X_ohm <> 0# Then
+                Call AddCalcWarning("Trafo '" & TrName(i) & "' (riadok " & (i + 2) & _
+                    "): chýba Sn [MVA] v stĺpci E alebo U1n [kV] v stĺpci F - korekcia K_T sa nepoužije (K_T = 1).")
+            End If
+        End If
     Next i
 End Sub
 
@@ -484,6 +537,7 @@ Public Sub LoadGeneratorData( _
     ByRef GenVref() As Double, _
     ByRef GenEmag() As Double, _
     ByRef GenPint() As Double, _
+    ByRef GenKG() As Double, _
     ByRef BusNames() As String, _
     ByRef BusBaseKV() As Double, _
     ByVal SBase_MVA As Double, _
@@ -499,6 +553,8 @@ Public Sub LoadGeneratorData( _
     Dim data As Variant
     Dim vref As Double, p As Double, q As Double
     Dim Iref As Complex, Zs As Complex, Evec As Complex
+    Dim SnG As Double, cosfi As Double, UrG_kV As Double, Xd_ohm As Double
+    Dim xdrel As Double, sinfi As Double
 
     Set ws = GetOrCreateSheet("generatory")
 
@@ -522,10 +578,12 @@ Public Sub LoadGeneratorData( _
     ReDim GenVref(1 To nGens)
     ReDim GenEmag(1 To nGens)
     ReDim GenPint(1 To nGens)
+    ReDim GenKG(1 To nGens)
 
-    ' bulk read B..Q (1=B meno, 2=C svorka, 3=D režim, 4=E status,
-    ' 11=L Ra, 12=M P_gen, 13=N Q_ref, 14=O Xs, 15=P Xd'', 16=Q V_ref)
-    data = ws.Range(ws.Cells(3, 2), ws.Cells(lastRow, 17)).Value
+    ' bulk read B..U (1=B meno, 2=C svorka, 3=D režim, 4=E status,
+    ' 11=L Ra, 12=M P_gen, 13=N Q_ref, 14=O Xs, 15=P Xd'', 16=Q V_ref,
+    ' 19=T Sn_G [MVA], 20=U cos fi_r  - vstupy pre korekciu K_G)
+    data = ws.Range(ws.Cells(3, 2), ws.Cells(lastRow, 21)).Value
 
     For i = 1 To nGens
         GenName(i) = CStr(data(i, 1))                       ' B
@@ -585,6 +643,23 @@ Public Sub LoadGeneratorData( _
             GenRa(i) = 0#
             GenXs(i) = 0#
             GenXd(i) = 0#
+        End If
+
+        ' Korekčný faktor K_G (IEC 60909-0, čl. 6.6.2), pre skratový výpočet:
+        '   xd''_rel = Xd''[ohm]·Sn_G/U_rG²,  K_G = (Un/U_rG)·cmax/(1 + xd''_rel·sin fi_r)
+        ' U_rG = V_ref [kV] (stĺpec Q). Bez Sn_G (T) a cos fi_r (U) sa korekcia nepoužije.
+        GenKG(i) = 1#
+        SnG = ParseDouble(data(i, 19))                          ' T: Sn_G [MVA]
+        cosfi = ParseDouble(data(i, 20))                        ' U: cos fi_r
+        UrG_kV = ParseDouble(data(i, 16))                       ' Q: V_ref [kV]
+        Xd_ohm = ParseDouble(data(i, 15))                       ' P: Xd'' [ohm]
+        If SnG > 0# And cosfi > 0# And cosfi <= 1# And UrG_kV > 0# And Xd_ohm > 0# Then
+            xdrel = Xd_ohm * SnG / (UrG_kV * UrG_kV)
+            sinfi = Sqr(1# - cosfi * cosfi)
+            GenKG(i) = (Ubase / UrG_kV) * GetVoltageFactorC(Ubase, True) / (1# + xdrel * sinfi)
+        ElseIf GenStatus(i) = 1 And (SnG > 0# Or cosfi > 0#) Then
+            Call AddCalcWarning("Generátor '" & GenName(i) & "' (riadok " & (i + 2) & _
+                "): neúplné údaje pre K_G (T=Sn_G, U=cos fi_r, Q=V_ref, P=Xd'') - korekcia sa nepoužije (K_G = 1).")
         End If
 
         ' Kalibrácia |E| a P_int pre EMF režim z referenčného bodu.
@@ -1822,15 +1897,54 @@ End Sub
 Public Sub WriteSwitchResults(ByVal nSwitches As Long, ByRef SwCurrent() As Double)
     Dim ws As Worksheet
     Dim i As Long
-    
+
     On Error Resume Next
     Set ws = ThisWorkbook.Worksheets("spinace")
     If ws Is Nothing Then Exit Sub
     On Error GoTo 0
-    
+
     For i = 1 To nSwitches
         ws.Cells(i + 2, 14).Value = Round(SwCurrent(i), 2)
     Next i
+End Sub
+
+' Načítanie nastavení skratového výpočtu (IEC 60909):
+'   index!G6: prípad "max"/"min" (prázdne = max)
+'   index!G7: meno uzla poruchy pre vetvové príspevky (prázdne = nepočítať)
+'   data!K13: Ik''max napájača [kA] (prázdne = fallback na uzly!J v riadku slacku)
+'   data!K14: Ik''min napájača [kA]
+'   data!K15: pomer R/X napájača (prázdne alebo <=0 = 0,1 podľa IEC)
+Public Sub LoadShortCircuitSettings( _
+    ByRef caseMax As Boolean, _
+    ByRef faultBusName As String, _
+    ByRef IkFeederMax As Double, _
+    ByRef IkFeederMin As Double, _
+    ByRef RXfeeder As Double)
+
+    Dim wsIdx As Worksheet, wsData As Worksheet
+    Dim s As String
+
+    Set wsIdx = ThisWorkbook.Worksheets("index")
+    Set wsData = ThisWorkbook.Worksheets("data")
+
+    s = LCase$(Trim$(CStr(wsIdx.Range("G6").Value)))
+    Select Case s
+        Case "", "max"
+            caseMax = True
+        Case "min"
+            caseMax = False
+        Case Else
+            Err.Raise vbObjectError + 30, "LoadShortCircuitSettings", _
+                "index!G6: neplatný prípad skratového výpočtu '" & s & "' (povolené: max, min, prázdne = max)."
+    End Select
+
+    faultBusName = Trim$(CStr(wsIdx.Range("G7").Value))
+
+    IkFeederMax = ParseDouble(wsData.Range("K13").Value)
+    IkFeederMin = ParseDouble(wsData.Range("K14").Value)
+
+    RXfeeder = ParseDouble(wsData.Range("K15").Value)
+    If RXfeeder <= 0# Then RXfeeder = 0.1
 End Sub
 
 
