@@ -8,10 +8,23 @@ Attribute VB_Name = "modShortCircuit"
 '       a motorov; motory sa pri min prípade zanedbávajú)
 '   2) SolveShortCircuit       – inverzia Ysc, Ik'' a ip vo všetkých uzloch
 '      (c-faktor podľa hladiny a prípadu, kappa metódou B pre zauzlené siete)
-'   3) ComputeBranchContributions – prúdy vetiev pri skrate vo zvolenom uzle
+'   3) BranchContribBegin..Finish  – prúdy vetiev pri skrate vo zvolenom uzle
 ' runCALC ich volá oddelene, aby vedel časovať a zobrazovať každú fázu zvlášť.
 '==========================
 Option Explicit
+
+' Zdieľaný Private stav pre vetvové príspevky skratu (platný len medzi
+' BranchContribBegin a BranchContribFinish; poradie volaní riadi runCALC).
+' Dôvod rozdelenia: VBA limituje procedúru na max. 60 parametrov.
+Private m_bcActive As Boolean
+Private m_bcCaseMax As Boolean
+Private m_bcCF As Double
+Private m_bcSBase As Double
+Private m_bcVbus() As Complex
+Private m_bcN As Long
+Private m_bcTyp() As String, m_bcNm() As String
+Private m_bcOd() As String, m_bcDo() As String
+Private m_bcIOd() As Double, m_bcIDo() As Double
 
 '--------------------------------------
 ' Zostavenie skratovej admitančnej matice Ysc.
@@ -263,180 +276,186 @@ End Sub
 '   V_i = c_f - Z_if · I_f    (napätia počas skratu; predporuchovo naprázdno)
 '   vetvy: I = (V_i - V_j)·y_s (bez B/2), trafo cez ys/a², ys/a,
 '   motory I = V_i·y_M (len max prípad), generátory I = V_t·y_G.
-' Výsledky sa zapíšu do hárku "skrat_vetvy", zoradené zostupne podľa prúdu.
+' Kvôli limitu VBA (max. 60 parametrov na procedúru) je výpočet rozdelený
+' na sekvenciu procedúr so zdieľaným Private stavom modulu (deklarácie hore):
+'   BranchContribBegin -> BranchContribSeries / ...Trafo / ...Motors / ...Gens
+'   -> BranchContribFinish (zoradenie + zápis do hárku "skrat_vetvy")
 '--------------------------------------
-Public Sub ComputeBranchContributions( _
-    ByVal faultBus As Long, ByVal nBuses As Long, ByRef Z_inv() As Complex, _
-    ByVal caseMax As Boolean, ByVal SBase_MVA As Double, _
-    ByRef BusNames As Variant, ByRef BusBaseKV As Variant, ByRef IsBusIsolated As Variant, _
-    ByVal nBranches As Long, ByRef BranchName As Variant, ByRef FromBus As Variant, ByRef ToBus As Variant, _
-    ByRef R As Variant, ByRef X As Variant, ByRef BranchStatus As Variant, ByRef IsBranchIsolated As Variant, _
-    ByVal nSwitches As Long, ByRef SwitchName As Variant, ByRef SwFrom As Variant, ByRef SwTo As Variant, _
-    ByRef SwR As Variant, ByRef SwX As Variant, ByRef SwStatus As Variant, ByRef IsSwitchIsolated As Variant, _
-    ByVal nTrafo As Long, ByRef TrName As Variant, ByRef TrFrom As Variant, ByRef TrTo As Variant, _
-    ByRef TrR As Variant, ByRef TrX As Variant, ByRef TrRatio As Variant, ByRef TrKT As Variant, ByRef IsTrafoIsolated As Variant, _
-    ByVal nReaktory As Long, ByRef ReaktorName As Variant, ByRef ReaktorFrom As Variant, ByRef ReaktorTo As Variant, _
-    ByRef ReaktorR As Variant, ByRef ReaktorX As Variant, ByRef IsReaktorIsolated As Variant, _
-    ByVal nDifReaktory As Long, ByRef DifReaktorName As Variant, ByRef DifReaktorFrom As Variant, ByRef DifReaktorTo As Variant, _
-    ByRef DifReaktorR As Variant, ByRef DifReaktorX As Variant, ByRef IsDifReaktorIsolated As Variant, _
-    ByVal nMotors As Long, ByRef MotorName As Variant, ByRef MotorBus As Variant, ByRef MotorR As Variant, _
-    ByRef MotorXk As Variant, ByRef MotorStatus As Variant, _
-    ByVal nGens As Long, ByRef GenName As Variant, ByRef GenTermBus As Variant, ByRef GenStatus As Variant, _
-    ByRef GenRa As Variant, ByRef GenXd As Variant, ByRef GenKG As Variant, _
-    ByRef Ik_result As Variant, ByRef ip_result As Variant)
+Public Sub BranchContribBegin( _
+    ByVal faultBus As Long, ByVal faultBusName As String, ByVal nBuses As Long, _
+    ByRef Z_inv() As Complex, ByVal caseMax As Boolean, ByVal SBase_MVA As Double, _
+    ByRef BusBaseKV As Variant, ByVal maxRows As Long)
 
-    Dim i As Long, J As Long, k As Long
-    Dim cF As Double, Un As Double, Zbase As Double
+    Dim i As Long
     Dim Zff As Complex, If_pu As Complex
-    Dim Vbus() As Complex
-    Dim Z As Complex, Ys As Complex, Ipu As Complex
-    Dim A As Double, kt As Double
-    Dim Rm_pu As Double, Xm_pu As Double, Zm_pu As Double
-    Dim Ra_g As Double, Xd_g As Double
-    Dim Iprim As Complex, Isec As Complex
-
-    ' Zberné polia výsledkov (maximálny možný počet riadkov)
-    Dim maxN As Long, n As Long
-    maxN = nBranches + nSwitches + nTrafo + nReaktory + nDifReaktory + nMotors + nGens
-    If maxN < 1 Then maxN = 1
-    Dim typArr() As String, nmArr() As String, odArr() As String, doArr() As String
-    Dim iOdArr() As Double, iDoArr() As Double
-    ReDim typArr(1 To maxN): ReDim nmArr(1 To maxN)
-    ReDim odArr(1 To maxN): ReDim doArr(1 To maxN)
-    ReDim iOdArr(1 To maxN): ReDim iDoArr(1 To maxN)
-    n = 0
 
     ' Théveninova impedancia v uzle poruchy
     Zff = Z_inv(faultBus, faultBus)
     If Sqr(Zff.Re * Zff.Re + Zff.Im * Zff.Im) <= 0.0000001 Then
-        Err.Raise vbObjectError + 31, "ComputeBranchContributions", _
-            "Uzol '" & CStr(BusNames(faultBus)) & "': Théveninova impedancia je nulová - vetvové príspevky sa nedajú vypočítať."
+        Err.Raise vbObjectError + 31, "BranchContribBegin", _
+            "Uzol '" & faultBusName & "': Théveninova impedancia je nulová - vetvové príspevky sa nedajú vypočítať."
     End If
 
-    cF = GetVoltageFactorC(CDbl(BusBaseKV(faultBus)), caseMax)
-    If_pu = CDiv(CCreate(cF, 0), Zff)
+    m_bcCaseMax = caseMax
+    m_bcSBase = SBase_MVA
+    m_bcCF = GetVoltageFactorC(CDbl(BusBaseKV(faultBus)), caseMax)
+    If_pu = CDiv(CCreate(m_bcCF, 0), Zff)
 
     ' Napätia uzlov počas skratu: V_i = c_f - Z_if·I_f
-    ReDim Vbus(1 To nBuses)
+    ReDim m_bcVbus(1 To nBuses)
     For i = 1 To nBuses
-        Vbus(i) = CSub(CCreate(cF, 0), CMul(Z_inv(i, faultBus), If_pu))
+        m_bcVbus(i) = CSub(CCreate(m_bcCF, 0), CMul(Z_inv(i, faultBus), If_pu))
     Next i
 
-    ' Vedenia
-    For k = 1 To nBranches
-        If BranchStatus(k) > 0 Then
-            If Not IsBranchIsolated(k) And Not (R(k) = 0 And X(k) = 0) Then
-                i = FromBus(k): J = ToBus(k)
-                Z = CCreate(CDbl(R(k)), CDbl(X(k)))
-                Ipu = CDiv(CSub(Vbus(i), Vbus(J)), Z)
-                n = n + 1
-                typArr(n) = "vedenie": nmArr(n) = CStr(BranchName(k))
-                odArr(n) = CStr(BusNames(i)): doArr(n) = CStr(BusNames(J))
-                iOdArr(n) = CAbs(Ipu) * IbaseKA(CDbl(BusBaseKV(i)), SBase_MVA)
-                iDoArr(n) = CAbs(Ipu) * IbaseKA(CDbl(BusBaseKV(J)), SBase_MVA)
+    If maxRows < 1 Then maxRows = 1
+    ReDim m_bcTyp(1 To maxRows): ReDim m_bcNm(1 To maxRows)
+    ReDim m_bcOd(1 To maxRows): ReDim m_bcDo(1 To maxRows)
+    ReDim m_bcIOd(1 To maxRows): ReDim m_bcIDo(1 To maxRows)
+    m_bcN = 0
+    m_bcActive = True
+End Sub
+
+' Guard: procedúry medzi Begin a Finish vyžadujú aktívny kontext
+Private Sub BranchContribCheckActive(ByVal caller As String)
+    If Not m_bcActive Then
+        Err.Raise vbObjectError + 34, caller, _
+            "Interná chyba: BranchContribBegin nebol zavolaný pred " & caller & "."
+    End If
+End Sub
+
+' Pridanie jedného riadku do zberných polí
+Private Sub BranchContribAddRow(ByVal typ As String, ByVal nm As String, _
+    ByVal odS As String, ByVal doS As String, ByVal iOd As Double, ByVal iDo As Double)
+    m_bcN = m_bcN + 1
+    m_bcTyp(m_bcN) = typ: m_bcNm(m_bcN) = nm
+    m_bcOd(m_bcN) = odS: m_bcDo(m_bcN) = doS
+    m_bcIOd(m_bcN) = iOd: m_bcIDo(m_bcN) = iDo
+End Sub
+
+' Sériové vetvy: vedenia (useStatus=True), spínače (True),
+' reaktory a dif. reaktory (useStatus=False - ElemStatus sa ignoruje,
+' volajúci vtedy pošle izolačné pole aj ako ElemStatus).
+Public Sub BranchContribSeries( _
+    ByVal typLabel As String, ByVal nElems As Long, _
+    ByRef ElemName As Variant, ByRef ElemFrom As Variant, ByRef ElemTo As Variant, _
+    ByRef ElemR As Variant, ByRef ElemX As Variant, _
+    ByRef ElemStatus As Variant, ByVal useStatus As Boolean, ByRef ElemIso As Variant, _
+    ByRef BusNames As Variant, ByRef BusBaseKV As Variant)
+
+    Dim k As Long, i As Long, J As Long
+    Dim Z As Complex, Ipu As Complex
+    Dim ok As Boolean
+
+    Call BranchContribCheckActive("BranchContribSeries")
+
+    For k = 1 To nElems
+        ok = True
+        If useStatus Then
+            If ElemStatus(k) <= 0 Then ok = False
+        End If
+        If ok Then
+            If Not ElemIso(k) And Not (ElemR(k) = 0 And ElemX(k) = 0) Then
+                i = ElemFrom(k): J = ElemTo(k)
+                Z = CCreate(CDbl(ElemR(k)), CDbl(ElemX(k)))
+                Ipu = CDiv(CSub(m_bcVbus(i), m_bcVbus(J)), Z)
+                Call BranchContribAddRow(typLabel, CStr(ElemName(k)), _
+                    CStr(BusNames(i)), CStr(BusNames(J)), _
+                    CAbs(Ipu) * IbaseKA(CDbl(BusBaseKV(i)), m_bcSBase), _
+                    CAbs(Ipu) * IbaseKA(CDbl(BusBaseKV(J)), m_bcSBase))
             End If
         End If
     Next k
+End Sub
 
-    ' Trafá (rovnaký model ako v Ysc: K_T len pre max prípad)
+' Trafá (rovnaký model ako v Ysc: K_T len pre max prípad)
+Public Sub BranchContribTrafo( _
+    ByVal nTrafo As Long, ByRef TrName As Variant, ByRef TrFrom As Variant, ByRef TrTo As Variant, _
+    ByRef TrR As Variant, ByRef TrX As Variant, ByRef TrRatio As Variant, ByRef TrKT As Variant, _
+    ByRef IsTrafoIsolated As Variant, ByRef BusNames As Variant, ByRef BusBaseKV As Variant)
+
+    Dim k As Long, i As Long, J As Long
+    Dim A As Double, kt As Double
+    Dim Z As Complex, Ys As Complex, Iprim As Complex, Isec As Complex
+
+    Call BranchContribCheckActive("BranchContribTrafo")
+
     For k = 1 To nTrafo
         If Not IsTrafoIsolated(k) And Not (TrR(k) = 0 And TrX(k) = 0) Then
-            If caseMax Then kt = CDbl(TrKT(k)) Else kt = 1#
+            If m_bcCaseMax Then kt = CDbl(TrKT(k)) Else kt = 1#
             If kt <= 0# Then kt = 1#
             i = TrFrom(k): J = TrTo(k): A = TrRatio(k)
             Z = CCreate(CDbl(TrR(k)) * kt, CDbl(TrX(k)) * kt)
             Ys = CDiv(CCreate(1, 0), Z)
             ' I_prim = V_i·ys/a² - V_j·ys/a ;  I_sec = V_j·ys - V_i·ys/a
-            Iprim = CSub(CMul(Vbus(i), CCreate(Ys.Re / (A * A), Ys.Im / (A * A))), _
-                         CMul(Vbus(J), CCreate(Ys.Re / A, Ys.Im / A)))
-            Isec = CSub(CMul(Vbus(J), Ys), _
-                        CMul(Vbus(i), CCreate(Ys.Re / A, Ys.Im / A)))
-            n = n + 1
-            typArr(n) = "trafo": nmArr(n) = CStr(TrName(k))
-            odArr(n) = CStr(BusNames(i)): doArr(n) = CStr(BusNames(J))
-            iOdArr(n) = CAbs(Iprim) * IbaseKA(CDbl(BusBaseKV(i)), SBase_MVA)
-            iDoArr(n) = CAbs(Isec) * IbaseKA(CDbl(BusBaseKV(J)), SBase_MVA)
+            Iprim = CSub(CMul(m_bcVbus(i), CCreate(Ys.Re / (A * A), Ys.Im / (A * A))), _
+                         CMul(m_bcVbus(J), CCreate(Ys.Re / A, Ys.Im / A)))
+            Isec = CSub(CMul(m_bcVbus(J), Ys), _
+                        CMul(m_bcVbus(i), CCreate(Ys.Re / A, Ys.Im / A)))
+            Call BranchContribAddRow("trafo", CStr(TrName(k)), _
+                CStr(BusNames(i)), CStr(BusNames(J)), _
+                CAbs(Iprim) * IbaseKA(CDbl(BusBaseKV(i)), m_bcSBase), _
+                CAbs(Isec) * IbaseKA(CDbl(BusBaseKV(J)), m_bcSBase))
         End If
     Next k
+End Sub
 
-    ' Spínače
-    For k = 1 To nSwitches
-        If SwStatus(k) > 0 Then
-            If Not IsSwitchIsolated(k) And Not (SwR(k) = 0 And SwX(k) = 0) Then
-                i = SwFrom(k): J = SwTo(k)
-                Z = CCreate(CDbl(SwR(k)), CDbl(SwX(k)))
-                Ipu = CDiv(CSub(Vbus(i), Vbus(J)), Z)
-                n = n + 1
-                typArr(n) = "spinac": nmArr(n) = CStr(SwitchName(k))
-                odArr(n) = CStr(BusNames(i)): doArr(n) = CStr(BusNames(J))
-                iOdArr(n) = CAbs(Ipu) * IbaseKA(CDbl(BusBaseKV(i)), SBase_MVA)
-                iDoArr(n) = iOdArr(n)
-            End If
-        End If
-    Next k
+' Motory VN (príspevok len v max prípade, rovnako ako v Ysc)
+Public Sub BranchContribMotors( _
+    ByVal nMotors As Long, ByRef MotorName As Variant, ByRef MotorBus As Variant, _
+    ByRef MotorR As Variant, ByRef MotorXk As Variant, ByRef MotorStatus As Variant, _
+    ByRef IsBusIsolated As Variant, ByRef BusNames As Variant, ByRef BusBaseKV As Variant)
 
-    ' Reaktory
-    For k = 1 To nReaktory
-        If Not IsReaktorIsolated(k) And Not (ReaktorR(k) = 0 And ReaktorX(k) = 0) Then
-            i = ReaktorFrom(k): J = ReaktorTo(k)
-            Z = CCreate(CDbl(ReaktorR(k)), CDbl(ReaktorX(k)))
-            Ipu = CDiv(CSub(Vbus(i), Vbus(J)), Z)
-            n = n + 1
-            typArr(n) = "reaktor": nmArr(n) = CStr(ReaktorName(k))
-            odArr(n) = CStr(BusNames(i)): doArr(n) = CStr(BusNames(J))
-            iOdArr(n) = CAbs(Ipu) * IbaseKA(CDbl(BusBaseKV(i)), SBase_MVA)
-            iDoArr(n) = CAbs(Ipu) * IbaseKA(CDbl(BusBaseKV(J)), SBase_MVA)
-        End If
-    Next k
+    Dim k As Long, i As Long
+    Dim Un As Double, Zbase As Double
+    Dim Zm_pu As Double, Rm_pu As Double, Xm_pu As Double
+    Dim Ipu As Complex
 
-    ' Dif. reaktory
-    For k = 1 To nDifReaktory
-        If Not IsDifReaktorIsolated(k) And Not (DifReaktorR(k) = 0 And DifReaktorX(k) = 0) Then
-            i = DifReaktorFrom(k): J = DifReaktorTo(k)
-            Z = CCreate(CDbl(DifReaktorR(k)), CDbl(DifReaktorX(k)))
-            Ipu = CDiv(CSub(Vbus(i), Vbus(J)), Z)
-            n = n + 1
-            typArr(n) = "dif.reaktor": nmArr(n) = CStr(DifReaktorName(k))
-            odArr(n) = CStr(BusNames(i)): doArr(n) = CStr(BusNames(J))
-            iOdArr(n) = CAbs(Ipu) * IbaseKA(CDbl(BusBaseKV(i)), SBase_MVA)
-            iDoArr(n) = CAbs(Ipu) * IbaseKA(CDbl(BusBaseKV(J)), SBase_MVA)
-        End If
-    Next k
+    Call BranchContribCheckActive("BranchContribMotors")
+    If Not m_bcCaseMax Then Exit Sub
 
-    ' Motory VN (príspevok len v max prípade, rovnako ako v Ysc)
-    If caseMax Then
-        For k = 1 To nMotors
-            If MotorStatus(k) = 1 Then
-                Zm_pu = Abs(CDbl(MotorXk(k)))
-                If Zm_pu > 0.0000001 Then
-                    i = MotorBus(k)
-                    If Not IsBusIsolated(i) Then
-                        Un = CDbl(BusBaseKV(i))
-                        If SBase_MVA <> 0# And Un <> 0# Then
-                            Zbase = (Un * Un) / SBase_MVA
-                        Else
-                            Zbase = 1#
-                        End If
-                        Rm_pu = CDbl(MotorR(k)) / Zbase
-                        If Rm_pu > 0# And Rm_pu < Zm_pu Then
-                            Xm_pu = Sqr(Zm_pu * Zm_pu - Rm_pu * Rm_pu)
-                        Else
-                            Xm_pu = Zm_pu / Sqr(1.01)
-                            Rm_pu = 0.1 * Xm_pu
-                        End If
-                        Ipu = CDiv(Vbus(i), CCreate(Rm_pu, Xm_pu))
-                        n = n + 1
-                        typArr(n) = "motor": nmArr(n) = CStr(MotorName(k))
-                        odArr(n) = CStr(BusNames(i)): doArr(n) = "-"
-                        iOdArr(n) = CAbs(Ipu) * IbaseKA(Un, SBase_MVA)
-                        iDoArr(n) = iOdArr(n)
+    For k = 1 To nMotors
+        If MotorStatus(k) = 1 Then
+            Zm_pu = Abs(CDbl(MotorXk(k)))
+            If Zm_pu > 0.0000001 Then
+                i = MotorBus(k)
+                If Not IsBusIsolated(i) Then
+                    Un = CDbl(BusBaseKV(i))
+                    If m_bcSBase <> 0# And Un <> 0# Then
+                        Zbase = (Un * Un) / m_bcSBase
+                    Else
+                        Zbase = 1#
                     End If
+                    Rm_pu = CDbl(MotorR(k)) / Zbase
+                    If Rm_pu > 0# And Rm_pu < Zm_pu Then
+                        Xm_pu = Sqr(Zm_pu * Zm_pu - Rm_pu * Rm_pu)
+                    Else
+                        Xm_pu = Zm_pu / Sqr(1.01)
+                        Rm_pu = 0.1 * Xm_pu
+                    End If
+                    Ipu = CDiv(m_bcVbus(i), CCreate(Rm_pu, Xm_pu))
+                    Call BranchContribAddRow("motor", CStr(MotorName(k)), _
+                        CStr(BusNames(i)), "-", _
+                        CAbs(Ipu) * IbaseKA(Un, m_bcSBase), _
+                        CAbs(Ipu) * IbaseKA(Un, m_bcSBase))
                 End If
             End If
-        Next k
-    End If
+        End If
+    Next k
+End Sub
 
-    ' Generátory (I = V_t·y_G, y_G = 1/(K_G·(Ra'+jXd'')))
+' Generátory (I = V_t·y_G, y_G = 1/(K_G·(Ra'+jXd'')))
+Public Sub BranchContribGens( _
+    ByVal nGens As Long, ByRef GenName As Variant, ByRef GenTermBus As Variant, _
+    ByRef GenStatus As Variant, ByRef GenRa As Variant, ByRef GenXd As Variant, _
+    ByRef GenKG As Variant, ByRef IsBusIsolated As Variant, _
+    ByRef BusNames As Variant, ByRef BusBaseKV As Variant)
+
+    Dim k As Long, i As Long
+    Dim Ra_g As Double, Xd_g As Double
+    Dim Z As Complex, Ipu As Complex
+
+    Call BranchContribCheckActive("BranchContribGens")
+
     For k = 1 To nGens
         If GenStatus(k) = 1 Then
             i = GenTermBus(k)
@@ -445,39 +464,46 @@ Public Sub ComputeBranchContributions( _
                 Xd_g = CDbl(GenXd(k))
                 If Ra_g = 0# Then Ra_g = 0.07 * Xd_g
                 Z = CCreate(CDbl(GenKG(k)) * Ra_g, CDbl(GenKG(k)) * Xd_g)
-                Ipu = CDiv(Vbus(i), Z)
-                n = n + 1
-                typArr(n) = "generator": nmArr(n) = CStr(GenName(k))
-                odArr(n) = CStr(BusNames(i)): doArr(n) = "-"
-                iOdArr(n) = CAbs(Ipu) * IbaseKA(CDbl(BusBaseKV(i)), SBase_MVA)
-                iDoArr(n) = iOdArr(n)
+                Ipu = CDiv(m_bcVbus(i), Z)
+                Call BranchContribAddRow("generator", CStr(GenName(k)), _
+                    CStr(BusNames(i)), "-", _
+                    CAbs(Ipu) * IbaseKA(CDbl(BusBaseKV(i)), m_bcSBase), _
+                    CAbs(Ipu) * IbaseKA(CDbl(BusBaseKV(i)), m_bcSBase))
             End If
         End If
     Next k
+End Sub
+
+' Zoradenie zostupne a zápis do hárku "skrat_vetvy"; uvoľní zdieľaný stav.
+Public Sub BranchContribFinish( _
+    ByVal faultBusName As String, ByVal Ik_fault As Double, ByVal ip_fault As Double)
+
+    Dim i As Long, J As Long, k As Long
+    Dim idx() As Long, tmp As Long, best As Long
+    Dim ws As Worksheet, rw As Long
+
+    Call BranchContribCheckActive("BranchContribFinish")
 
     ' Zoradenie zostupne podľa väčšieho z prúdov (jednoduchý selection sort)
-    Dim idx() As Long, tmp As Long, best As Long
-    ReDim idx(1 To maxN)
-    For i = 1 To n: idx(i) = i: Next i
-    For i = 1 To n - 1
+    ReDim idx(1 To UBound(m_bcTyp))
+    For i = 1 To m_bcN: idx(i) = i: Next i
+    For i = 1 To m_bcN - 1
         best = i
-        For J = i + 1 To n
-            If MaxD(iOdArr(idx(J)), iDoArr(idx(J))) > MaxD(iOdArr(idx(best)), iDoArr(idx(best))) Then best = J
+        For J = i + 1 To m_bcN
+            If MaxD(m_bcIOd(idx(J)), m_bcIDo(idx(J))) > MaxD(m_bcIOd(idx(best)), m_bcIDo(idx(best))) Then best = J
         Next J
         If best <> i Then
             tmp = idx(i): idx(i) = idx(best): idx(best) = tmp
         End If
     Next i
 
-    ' Zápis do hárku "skrat_vetvy"
-    Dim ws As Worksheet, rw As Long
     Set ws = GetOrCreateSheet("skrat_vetvy")
     ws.Cells.Clear
-    ws.Cells(2, 2).Value = "Skrat v uzle:":  ws.Cells(2, 3).Value = CStr(BusNames(faultBus))
-    ws.Cells(3, 2).Value = "Prípad:":        ws.Cells(3, 3).Value = IIf(caseMax, "max", "min")
-    ws.Cells(4, 2).Value = "c [-]:":         ws.Cells(4, 3).Value = cF
-    ws.Cells(5, 2).Value = "Ik'' [kA]:":     ws.Cells(5, 3).Value = Round(Ik_result(faultBus), 2)
-    ws.Cells(6, 2).Value = "ip [kA]:":       ws.Cells(6, 3).Value = Round(ip_result(faultBus), 2)
+    ws.Cells(2, 2).Value = "Skrat v uzle:":  ws.Cells(2, 3).Value = faultBusName
+    ws.Cells(3, 2).Value = "Prípad:":        ws.Cells(3, 3).Value = IIf(m_bcCaseMax, "max", "min")
+    ws.Cells(4, 2).Value = "c [-]:":         ws.Cells(4, 3).Value = m_bcCF
+    ws.Cells(5, 2).Value = "Ik'' [kA]:":     ws.Cells(5, 3).Value = Round(Ik_fault, 2)
+    ws.Cells(6, 2).Value = "ip [kA]:":       ws.Cells(6, 3).Value = Round(ip_fault, 2)
     ws.Cells(2, 2).Resize(5, 1).Font.Bold = True
 
     rw = 8
@@ -489,16 +515,21 @@ Public Sub ComputeBranchContributions( _
     ws.Cells(rw, 7).Value = "I do [kA]"
     ws.Cells(rw, 2).Resize(1, 6).Font.Bold = True
 
-    For i = 1 To n
+    For i = 1 To m_bcN
         rw = rw + 1
         k = idx(i)
-        ws.Cells(rw, 2).Value = typArr(k)
-        ws.Cells(rw, 3).Value = nmArr(k)
-        ws.Cells(rw, 4).Value = odArr(k)
-        ws.Cells(rw, 5).Value = doArr(k)
-        ws.Cells(rw, 6).Value = Round(iOdArr(k), 2)
-        ws.Cells(rw, 7).Value = Round(iDoArr(k), 2)
+        ws.Cells(rw, 2).Value = m_bcTyp(k)
+        ws.Cells(rw, 3).Value = m_bcNm(k)
+        ws.Cells(rw, 4).Value = m_bcOd(k)
+        ws.Cells(rw, 5).Value = m_bcDo(k)
+        ws.Cells(rw, 6).Value = Round(m_bcIOd(k), 2)
+        ws.Cells(rw, 7).Value = Round(m_bcIDo(k), 2)
     Next i
+
+    ' Uvoľnenie stavu
+    m_bcActive = False
+    Erase m_bcVbus, m_bcTyp, m_bcNm, m_bcOd, m_bcDo, m_bcIOd, m_bcIDo
+    m_bcN = 0
 End Sub
 
 ' Bázový prúd v kA pre danú hladinu (S_base [MVA], Un [kV])

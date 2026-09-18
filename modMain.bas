@@ -389,7 +389,9 @@ Public Sub runCALC()
         Call SolveShortCircuit(Ysc, nBuses, BusNames, BusBaseKV, SBase_MVA, caseMax, IsBusIsolated, Ik_result, ip_result, Z_inv)
         Call WriteShortCircuitResults(Ik_result, ip_result, nBuses)
 
-        ' Vetvové príspevky pre zvolený uzol poruchy (index!G7, voliteľné)
+        ' Vetvové príspevky pre zvolený uzol poruchy (index!G7, voliteľné).
+        ' Kvôli limitu VBA (max. 60 parametrov na procedúru) je výpočet rozdelený
+        ' na sekvenciu Begin -> prvky -> Finish so zdieľaným stavom v modShortCircuit.
         If Len(faultBusName) > 0 Then
             faultBusIdx = GetBusIndexD(faultBusName, busDict)
             If faultBusIdx = 0 Then
@@ -398,16 +400,23 @@ Public Sub runCALC()
             If IsBusIsolated(faultBusIdx) Then
                 Err.Raise vbObjectError + 33, , "Uzol poruchy '" & faultBusName & "' z index!G7 je izolovaný od slacku."
             End If
-            Call ComputeBranchContributions(faultBusIdx, nBuses, Z_inv, caseMax, SBase_MVA, _
-                                            BusNames, BusBaseKV, IsBusIsolated, _
-                                            nBranches, BranchName, FromBus, ToBus, R, X, BranchStatus, IsBranchIsolated, _
-                                            nSwitches, SwitchName, SwFrom, SwTo, SwR, SwX, SwStatus, IsSwitchIsolated, _
-                                            nTrafo, TrName, TrFrom, TrTo, TrR, TrX, TrRatio, TrKT, IsTrafoIsolated, _
-                                            nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, IsReaktorIsolated, _
-                                            nDifReaktory, DifReaktorName, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, IsDifReaktorIsolated, _
-                                            nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorStatus, _
-                                            nGens, GenName, GenTermBus, GenStatus, GenRa, GenXd, GenKG, _
-                                            Ik_result, ip_result)
+            Call BranchContribBegin(faultBusIdx, faultBusName, nBuses, Z_inv, caseMax, SBase_MVA, BusBaseKV, _
+                                    nBranches + nSwitches + nTrafo + nReaktory + nDifReaktory + nMotors + nGens)
+            Call BranchContribSeries("vedenie", nBranches, BranchName, FromBus, ToBus, R, X, _
+                                     BranchStatus, True, IsBranchIsolated, BusNames, BusBaseKV)
+            Call BranchContribTrafo(nTrafo, TrName, TrFrom, TrTo, TrR, TrX, TrRatio, TrKT, _
+                                    IsTrafoIsolated, BusNames, BusBaseKV)
+            Call BranchContribSeries("spinac", nSwitches, SwitchName, SwFrom, SwTo, SwR, SwX, _
+                                     SwStatus, True, IsSwitchIsolated, BusNames, BusBaseKV)
+            Call BranchContribSeries("reaktor", nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, _
+                                     IsReaktorIsolated, False, IsReaktorIsolated, BusNames, BusBaseKV)
+            Call BranchContribSeries("dif.reaktor", nDifReaktory, DifReaktorName, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, _
+                                     IsDifReaktorIsolated, False, IsDifReaktorIsolated, BusNames, BusBaseKV)
+            Call BranchContribMotors(nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorStatus, _
+                                     IsBusIsolated, BusNames, BusBaseKV)
+            Call BranchContribGens(nGens, GenName, GenTermBus, GenStatus, GenRa, GenXd, GenKG, _
+                                   IsBusIsolated, BusNames, BusBaseKV)
+            Call BranchContribFinish(faultBusName, CDbl(Ik_result(faultBusIdx)), CDbl(ip_result(faultBusIdx)))
         End If
 
         ' Varovania z fázy 2/3 (napájač, kappa) - report je už zapísaný z fázy 1
