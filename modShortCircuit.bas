@@ -20,6 +20,7 @@ Private m_bcActive As Boolean
 Private m_bcCaseMax As Boolean
 Private m_bcCF As Double
 Private m_bcSBase As Double
+Private m_bcFaultBus As Long
 Private m_bcVbus() As Complex
 Private m_bcN As Long
 Private m_bcTyp() As String, m_bcNm() As String
@@ -270,8 +271,10 @@ Public Sub WriteShortCircuitResults(ByRef Ik_result As Variant, ByRef ip_result 
 End Sub
 
 '--------------------------------------
-' Vetvové príspevky pri skrate vo zvolenom uzle f (metóda ekvivalentného
-' napäťového zdroja, IEC 60909):
+' PRIAME príspevky do zvoleného uzla poruchy f (rozpad skratového prúdu
+' na prípojnici): zapisujú sa len prvky pripojené priamo do uzla f
+' (vetvy incidentné s f, motory a generátory v uzle f). Metóda
+' ekvivalentného napäťového zdroja, IEC 60909:
 '   I_f  = c_f / Z_ff          (p.u.)
 '   dV_i = -Z_if · I_f         (PORUCHOVÁ ZLOŽKA napätí - superpozícia:
 '          celkový prúd vetvy = predporuchový (naprázdno = 0) + zložka z dV.
@@ -303,6 +306,7 @@ Public Sub BranchContribBegin( _
 
     m_bcCaseMax = caseMax
     m_bcSBase = SBase_MVA
+    m_bcFaultBus = faultBus
     m_bcCF = GetVoltageFactorC(CDbl(BusBaseKV(faultBus)), caseMax)
     If_pu = CDiv(CCreate(m_bcCF, 0), Zff)
 
@@ -362,12 +366,15 @@ Public Sub BranchContribSeries( _
         If ok Then
             If Not ElemIso(k) And Not (ElemR(k) = 0 And ElemX(k) = 0) Then
                 i = ElemFrom(k): J = ElemTo(k)
-                Z = CCreate(CDbl(ElemR(k)), CDbl(ElemX(k)))
-                Ipu = CDiv(CSub(m_bcVbus(i), m_bcVbus(J)), Z)
-                Call BranchContribAddRow(typLabel, CStr(ElemName(k)), _
-                    CStr(BusNames(i)), CStr(BusNames(J)), _
-                    CAbs(Ipu) * IbaseKA(CDbl(BusBaseKV(i)), m_bcSBase), _
-                    CAbs(Ipu) * IbaseKA(CDbl(BusBaseKV(J)), m_bcSBase))
+                ' len priame príspevky: prvok musí byť pripojený do uzla poruchy
+                If i = m_bcFaultBus Or J = m_bcFaultBus Then
+                    Z = CCreate(CDbl(ElemR(k)), CDbl(ElemX(k)))
+                    Ipu = CDiv(CSub(m_bcVbus(i), m_bcVbus(J)), Z)
+                    Call BranchContribAddRow(typLabel, CStr(ElemName(k)), _
+                        CStr(BusNames(i)), CStr(BusNames(J)), _
+                        CAbs(Ipu) * IbaseKA(CDbl(BusBaseKV(i)), m_bcSBase), _
+                        CAbs(Ipu) * IbaseKA(CDbl(BusBaseKV(J)), m_bcSBase))
+                End If
             End If
         End If
     Next k
@@ -387,20 +394,23 @@ Public Sub BranchContribTrafo( _
 
     For k = 1 To nTrafo
         If Not IsTrafoIsolated(k) And Not (TrR(k) = 0 And TrX(k) = 0) Then
-            If m_bcCaseMax Then kt = CDbl(TrKT(k)) Else kt = 1#
-            If kt <= 0# Then kt = 1#
             i = TrFrom(k): J = TrTo(k): A = TrRatio(k)
-            Z = CCreate(CDbl(TrR(k)) * kt, CDbl(TrX(k)) * kt)
-            Ys = CDiv(CCreate(1, 0), Z)
-            ' I_prim = V_i·ys/a² - V_j·ys/a ;  I_sec = V_j·ys - V_i·ys/a
-            Iprim = CSub(CMul(m_bcVbus(i), CCreate(Ys.Re / (A * A), Ys.Im / (A * A))), _
-                         CMul(m_bcVbus(J), CCreate(Ys.Re / A, Ys.Im / A)))
-            Isec = CSub(CMul(m_bcVbus(J), Ys), _
-                        CMul(m_bcVbus(i), CCreate(Ys.Re / A, Ys.Im / A)))
-            Call BranchContribAddRow("trafo", CStr(TrName(k)), _
-                CStr(BusNames(i)), CStr(BusNames(J)), _
-                CAbs(Iprim) * IbaseKA(CDbl(BusBaseKV(i)), m_bcSBase), _
-                CAbs(Isec) * IbaseKA(CDbl(BusBaseKV(J)), m_bcSBase))
+            ' len priame príspevky: trafo musí byť pripojené do uzla poruchy
+            If i = m_bcFaultBus Or J = m_bcFaultBus Then
+                If m_bcCaseMax Then kt = CDbl(TrKT(k)) Else kt = 1#
+                If kt <= 0# Then kt = 1#
+                Z = CCreate(CDbl(TrR(k)) * kt, CDbl(TrX(k)) * kt)
+                Ys = CDiv(CCreate(1, 0), Z)
+                ' I_prim = V_i·ys/a² - V_j·ys/a ;  I_sec = V_j·ys - V_i·ys/a
+                Iprim = CSub(CMul(m_bcVbus(i), CCreate(Ys.Re / (A * A), Ys.Im / (A * A))), _
+                             CMul(m_bcVbus(J), CCreate(Ys.Re / A, Ys.Im / A)))
+                Isec = CSub(CMul(m_bcVbus(J), Ys), _
+                            CMul(m_bcVbus(i), CCreate(Ys.Re / A, Ys.Im / A)))
+                Call BranchContribAddRow("trafo", CStr(TrName(k)), _
+                    CStr(BusNames(i)), CStr(BusNames(J)), _
+                    CAbs(Iprim) * IbaseKA(CDbl(BusBaseKV(i)), m_bcSBase), _
+                    CAbs(Isec) * IbaseKA(CDbl(BusBaseKV(J)), m_bcSBase))
+            End If
         End If
     Next k
 End Sub
@@ -424,7 +434,8 @@ Public Sub BranchContribMotors( _
             Zm_pu = Abs(CDbl(MotorXk(k)))
             If Zm_pu > 0.0000001 Then
                 i = MotorBus(k)
-                If Not IsBusIsolated(i) Then
+                ' len priame príspevky: motor musí byť v uzle poruchy
+                If i = m_bcFaultBus And Not IsBusIsolated(i) Then
                     Un = CDbl(BusBaseKV(i))
                     If m_bcSBase <> 0# And Un <> 0# Then
                         Zbase = (Un * Un) / m_bcSBase
@@ -465,7 +476,8 @@ Public Sub BranchContribGens( _
     For k = 1 To nGens
         If GenStatus(k) = 1 Then
             i = GenTermBus(k)
-            If Not IsBusIsolated(i) And Not (GenRa(k) = 0 And GenXd(k) = 0) Then
+            ' len priame príspevky: generátor musí byť v uzle poruchy
+            If i = m_bcFaultBus And Not IsBusIsolated(i) And Not (GenRa(k) = 0 And GenXd(k) = 0) Then
                 Ra_g = CDbl(GenRa(k))
                 Xd_g = CDbl(GenXd(k))
                 If Ra_g = 0# Then Ra_g = 0.07 * Xd_g
@@ -505,6 +517,8 @@ Public Sub BranchContribFinish( _
 
     Set ws = GetOrCreateSheet("skrat_vetvy")
     ws.Cells.Clear
+    ws.Cells(1, 2).Value = "Priame príspevky do uzla poruchy"
+    ws.Cells(1, 2).Font.Bold = True
     ws.Cells(2, 2).Value = "Skrat v uzle:":  ws.Cells(2, 3).Value = faultBusName
     ws.Cells(3, 2).Value = "Prípad:":        ws.Cells(3, 3).Value = IIf(m_bcCaseMax, "max", "min")
     ws.Cells(4, 2).Value = "c [-]:":         ws.Cells(4, 3).Value = m_bcCF

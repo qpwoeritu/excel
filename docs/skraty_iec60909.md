@@ -17,7 +17,7 @@ Implementácia odporúčaní z kap. 4.4 reportu [`porovnanie_pandapower.md`](por
 ## Nové výstupy
 
 - **`uzly!N`** — nárazový skratový prúd **ip [kA]** pre každý uzol (hlavičku bunky N2 si doplní používateľ; kód hlavičky na vstupné karty nezapisuje).
-- **hárok `skrat_vetvy`** — pri vyplnenom `index!G7`: prúdy všetkých vetiev (vedenia, trafá, spínače, reaktory, dif. reaktory) a príspevky motorov a generátorov pri skrate vo zvolenom uzle, zoradené zostupne; hlavička s uzlom, prípadom, c, Ik'' a ip.
+- **hárok `skrat_vetvy`** — pri vyplnenom `index!G7`: **priame príspevky do uzla poruchy** (rozpad skratového prúdu na prípojnici) — len vetvy pripojené priamo do zvoleného uzla (vedenia, trafá, spínače, reaktory, dif. reaktory) a motory/generátory v tomto uzle, zoradené zostupne; hlavička s uzlom, prípadom, c, Ik'' a ip. Vektorový súčet príspevkov = Ik'' (súčet absolútnych hodnôt môže byť o málo vyšší).
 - **SLD tag** — nová premenná uzla `Ikp` (napr. `N_R100_Ikp_R`) vypíše `ip= 12,3 kA`. (Názov `Ip` je obsadený primárnym prúdom trafa.)
 - **hárok `report`** — varovania výpočtu (chýbajúce údaje pre K_T/K_G, fallback Ik''min a pod.), riadky s prefixom „Varovanie:".
 
