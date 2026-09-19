@@ -312,7 +312,7 @@ Public Sub RunNRPhase( _
     ByVal nDifReaktory As Long, ByRef DifReaktorFrom() As Long, ByRef DifReaktorTo() As Long, ByRef DifReaktorR() As Double, ByRef DifReaktorX() As Double, _
     ByVal nComp As Long, ByRef CompBus() As Long, ByRef CompB() As Double, ByRef CompStatus() As Integer, _
     ByVal nMotors As Long, ByRef MotorBus() As Long, ByRef MotorR() As Double, ByRef MotorG() As Double, ByRef MotorB() As Double, ByRef MotorStatus() As Integer, _
-    ByRef IsBusIsolated() As Boolean, ByVal iterCell As Range)
+    ByRef IsBusIsolated() As Boolean, ByRef OutMap() As Long, ByVal iterCell As Range)
 
     Dim Pcalc() As Double, Qcalc() As Double
     Dim PQIndex() As Long
@@ -449,15 +449,15 @@ Public Sub RunNRPhase( _
 
 SkipNR:
 
-    ' Post-NR zápisy na listy
-    Call WriteFinalVoltagesToUzly(Vmag, Vang, BusBaseKV, nBusReal)
+    ' Post-NR zápisy na listy (OutMap: pôvodný uzol -> výpočtový uzol/supernode)
+    Call WriteFinalVoltagesToUzly(Vmag, Vang, BusBaseKV, nBusReal, OutMap)
 
     ' Pre izolované uzly prepíšeme stĺpce H/I na "izolovane"/"-"
     ' (WriteFinalVoltagesToUzly inak pre nich zapíše 0; report sheet sa už vyplnil v I3 fáze).
     Dim wsUz As Worksheet
     Set wsUz = ThisWorkbook.Worksheets("uzly")
     For i = 1 To nBusReal
-        If IsBusIsolated(i) Then
+        If IsBusIsolated(OutMap(i)) Then
             wsUz.Cells(2 + i, 8).Value = "izolovane"
             wsUz.Cells(2 + i, 9).Value = "-"
         End If
@@ -506,7 +506,7 @@ SkipNR:
         ReDim Pcalc(1 To nBuses)
         ReDim Qcalc(1 To nBuses)
     End If
-    Call WriteNodeThroughput(nBusReal, BusNames, BusBaseKV, SBase_MVA, _
+    Call WriteNodeThroughput(nBusReal, nBuses, OutMap, BusNames, BusBaseKV, SBase_MVA, _
                              nBranches, FromBus, ToBus, R, X, BranchStatus, _
                              nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
                              nTrafo, TrFrom, TrTo, TrR, TrX, TrRatio, TrG, TrB, _
@@ -521,7 +521,8 @@ End Sub
 ' Výpočet a zápis zaťaženia uzlov (P, Q, I) do stĺpcov K, L, M
 '--------------------------------------
 Private Sub WriteNodeThroughput( _
-    ByVal nBuses As Long, ByRef BusNames() As String, ByRef BusBaseKV() As Double, ByVal SBase_MVA As Double, _
+    ByVal nBuses As Long, ByVal nCalc As Long, ByRef OutMap() As Long, _
+    ByRef BusNames() As String, ByRef BusBaseKV() As Double, ByVal SBase_MVA As Double, _
     ByVal nBranches As Long, ByRef FromBus() As Long, ByRef ToBus() As Long, ByRef R() As Double, ByRef X() As Double, ByRef BranchStatus() As Integer, _
     ByVal nSwitches As Long, ByRef SwFrom() As Long, ByRef SwTo() As Long, ByRef SwR() As Double, ByRef SwX() As Double, ByRef SwStatus() As Integer, _
     ByVal nTrafo As Long, ByRef TrFrom() As Long, ByRef TrTo() As Long, ByRef TrR() As Double, ByRef TrX() As Double, ByRef TrRatio() As Double, ByRef TrG() As Double, ByRef TrB() As Double, _
@@ -535,7 +536,9 @@ Private Sub WriteNodeThroughput( _
     Dim SumP() As Double, SumQ() As Double
     Dim ws As Worksheet
 
-    ReDim SumP(1 To nBuses), SumQ(1 To nBuses)
+    ' Sumy sa počítajú na výpočtových uzloch (pri redukcii supernody);
+    ' do riadkov listu uzly sa mapujú cez OutMap.
+    ReDim SumP(1 To nCalc), SumQ(1 To nCalc)
 
     Dim Vi As Complex, Vj As Complex, Z As Complex, Ys As Complex
     Dim I_pu As Complex, S_pu As Complex
@@ -657,22 +660,26 @@ Private Sub WriteNodeThroughput( _
     Next k
 
     ' 8. Injekcia do uzla (Generátory / Odbery)
-    For i = 1 To nBuses
+    For i = 1 To nCalc
         If Pcalc(i) > 0 Then SumP(i) = SumP(i) + Pcalc(i)
         If Qcalc(i) > 0 Then SumQ(i) = SumQ(i) + Qcalc(i)
     Next i
 
     Set ws = ThisWorkbook.Worksheets("uzly")
 
+    ' Zápis: riadok pôvodného uzla i dostáva hodnoty svojho výpočtového
+    ' uzla OutMap(i) (pri redukcii = priepustnosť celého supernodu/prípojnice)
+    Dim nc As Long
     For i = 1 To nBuses
         Dim P_real As Double, Q_real As Double, I_real As Double
-        P_real = SumP(i) * SBase_MVA
-        Q_real = SumQ(i) * SBase_MVA
+        nc = OutMap(i)
+        P_real = SumP(nc) * SBase_MVA
+        Q_real = SumQ(nc) * SBase_MVA
 
-        Ubase = BusBaseKV(i)
-        If Ubase <> 0 And Vmag(i) > 0.0000001 Then
+        Ubase = BusBaseKV(nc)
+        If Ubase <> 0 And Vmag(nc) > 0.0000001 Then
             Ibase_A = (SBase_MVA * 1000#) / (Sqr(3) * Ubase)
-            I_real = Sqr(SumP(i) * SumP(i) + SumQ(i) * SumQ(i)) / Vmag(i) * Ibase_A
+            I_real = Sqr(SumP(nc) * SumP(nc) + SumQ(nc) * SumQ(nc)) / Vmag(nc) * Ibase_A
         Else
             I_real = 0
         End If

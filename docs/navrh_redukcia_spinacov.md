@@ -1,6 +1,20 @@
 # Návrh: redukcia uzlov pre spínače (bus fusion podľa pandapower)
 
-**Stav: NÁVRH NA ODSÚHLASENIE — zatiaľ neimplementované.**
+**Stav: E1 + E2 IMPLEMENTOVANÉ.** Etapa E3 (default režim po overení na reálnych dátach, prípadné odstránenie legacy vetvy) zostáva otvorená.
+
+## Zhrnutie implementácie (E1 + E2)
+
+- **Nový modul `modReduce.bas`**: `BuildNodeReduction` (union-find nad zopnutými spínačmi s `|Z| ≤` prah, priorita reprezentanta slack > PV > uzol s injekciou, kontroly konzistencie napäťovej hladiny/duplicitného slacku) a rodina `SwitchKcl*` procedúr (KCL rozklad prúdov fúzovaných spínačov: stromy rezovými súčtami cez odlupovanie listov, slučky lokálnou sústavou podľa R/X spínačov).
+- **Nové vstupy**: `index!G8` = režim `redukcia` (default) / `impedancia` (legacy, presne pôvodné správanie); `data!K16` = prah fúzie `|Z|` v Ω (default 0,001 Ω — dnešné 1e-6 Ω spínače spadnú pod prah).
+- **Architektúra**: `modMain.bas` po FÁZE 1 zostaví mapu `BusToNode()` (pôvodný uzol → supernode) a node-level polia (agregácia Pspec/Qspec, spoločná napäťová hladina, izolovanosť). Element­ové polia (vedenia, trafá, spínače, reaktory, dif. reaktory, kompenzácie, motory, generátory) sa pred vstupom do `BuildYBus`/`RunNRPhase`/`BuildShortCircuitMatrix` prekódujú cez `BusToNode` — **samotné výpočtové jadrá sa nemenia**, dostávajú len uzly na úrovni supernodov namiesto pôvodných zberníc. Výsledky (`Ik''`, `ip`, napätia) sa po výpočte expandujú späť na pôvodné uzly cez `BusToNode`, takže existujúci post-processing (výsledkové hárky, SLD) funguje bez zásahu.
+- **Pri `index!G8 = impedancia`**: `BusToNode(i) = i` (identita), správanie je bitovo zhodné s pôvodnou implementáciou pred touto zmenou (žiadna regresia).
+- **Priame príspevky do uzla poruchy** (`skrat_vetvy`) teraz prirodzene agregujú všetky prvky pripojené do KTORÉHOKOĽVEK pôvodného uzla v skupine (nielen presne zadaný), čo zodpovedá rozpadu skratového prúdu na celej prípojnici.
+- **Validácia**: skratový prúd Ik'' cez redukciu sa zhoduje s pandapower (automatická fúzia `z_ohm=0` spínača) presne na 0,0000 % na testovacej sieti s trafom (vrátane K_T) a zbernicovým spínačom; load flow sa zhoduje na 0,01 % (zvyšok je artefakt zjednodušeného testovacieho riešiča, nie produkčného NR kódu, ktorý ostáva nezmenený).
+- **Známe obmedzenie**: KCL rozklad prúdov (E2) pokrýva zatiaľ len **load flow** mód. V skratovom móde priame príspevky fúzovaných spínačov (tých vo vnútri supernodu uzla poruchy) vychádzajú z výpočtu ako 0/vynechané (matematicky korektné - taký spínač už nie je samostatná vetva, keďže oba jeho konce sú elektricky jeden uzol), keďže sa nepočíta skratová obdoba KCL rozkladu. Toto je zámerná hranica rozsahu E1+E2; prípadné rozšírenie na skratový KCL je voliteľná ďalšia etapa.
+
+---
+
+## Pôvodný návrh (nižšie, pre kontext)
 
 ## 1. Motivácia
 

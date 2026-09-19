@@ -1324,18 +1324,21 @@ Public Sub WriteFinalVoltagesToUzly( _
     ByRef Vmag() As Double, _
     ByRef Vang() As Double, _
     ByRef BusBaseKV() As Double, _
-    ByVal nBuses As Long)
+    ByVal nBuses As Long, _
+    ByRef OutMap() As Long)
 
     Dim ws As Worksheet
-    Dim i As Long
+    Dim i As Long, n As Long
 
     Set ws = ThisWorkbook.Worksheets("uzly")
 
     ' hlavičky v riadku 2 (H, I) si spravuje používateľ – kód ich needituje
-    ' dáta od riadku 3
+    ' dáta od riadku 3; OutMap mapuje pôvodný uzol -> výpočtový uzol
+    ' (identita bez redukcie spínačov, supernode pri redukcii)
     For i = 1 To nBuses
-        ws.Cells(2 + i, 8).Value = Round(Vmag(i) * BusBaseKV(i), 2)
-        ws.Cells(2 + i, 9).Value = Round(Vang(i) * RAD2DEG, 2)
+        n = OutMap(i)
+        ws.Cells(2 + i, 8).Value = Round(Vmag(n) * BusBaseKV(n), 2)
+        ws.Cells(2 + i, 9).Value = Round(Vang(n) * RAD2DEG, 2)
     Next i
 End Sub
 
@@ -1949,6 +1952,27 @@ Public Sub LoadShortCircuitSettings( _
 
     RXfeeder = ParseDouble(wsData.Range("K15").Value)
     If RXfeeder <= 0# Then RXfeeder = 0.1
+End Sub
+
+' Nastavenia redukcie uzlov pre spínače (bus fusion podľa pandapower):
+'   index!G8: režim "redukcia" (prázdne = default) / "impedancia" (pôvodné správanie)
+'   data!K16: prah fúzie |Z| [ohm] (prázdne alebo <=0 = 0,001)
+Public Sub LoadSwitchReductionSettings(ByRef reduceMode As Boolean, ByRef fuseThrOhm As Double)
+    Dim s As String
+
+    s = LCase$(Trim$(CStr(ThisWorkbook.Worksheets("index").Range("G8").Value)))
+    Select Case s
+        Case "", "redukcia"
+            reduceMode = True
+        Case "impedancia"
+            reduceMode = False
+        Case Else
+            Err.Raise vbObjectError + 45, "LoadSwitchReductionSettings", _
+                "index!G8: neplatný režim spínačov '" & s & "' (povolené: redukcia, impedancia, prázdne = redukcia)."
+    End Select
+
+    fuseThrOhm = ParseDouble(ThisWorkbook.Worksheets("data").Range("K16").Value)
+    If fuseThrOhm <= 0# Then fuseThrOhm = 0.001
 End Sub
 
 

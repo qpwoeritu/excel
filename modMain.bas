@@ -137,13 +137,37 @@ Public Sub runCALC()
     Dim G() As Double, B() As Double
 
     Dim Ysc() As Complex
-    Dim Ik_input() As Double, Ik_result As Variant, ip_result As Variant
+    Dim Ik_input() As Double, Ik_inputN() As Double
+    Dim Ik_result As Variant, ip_result As Variant
+    Dim Ik_resultN As Variant, ip_resultN As Variant
     Dim Z_inv() As Complex
     Dim caseMax As Boolean, faultBusName As String
     Dim IkFeederMax As Double, IkFeederMin As Double, RXfeeder As Double
-    Dim faultBusIdx As Long, slackIdx As Long
+    Dim faultBusIdx As Long, slackIdx As Long, faultNode As Long
     Dim ws As Worksheet
     Dim i As Long
+
+    ' Redukcia uzlov pre spínače (bus fusion podľa pandapower) - nastavenia a mapovanie.
+    ' Pri reduceMode=False je BusToNode identita a nNodes=nBuses (žiadna zmena správania).
+    Dim reduceMode As Boolean, fuseThrOhm As Double
+    Dim BusToNode() As Long, nNodes As Long
+    Dim NodeNames() As String, NodeTypes() As BusType, NodeBaseKV() As Double
+    Dim NodeVmag() As Double, NodeVang() As Double
+    Dim NodePspec() As Double, NodeQspec() As Double
+    Dim IsNodeIsolated() As Boolean
+    Dim SwFused() As Boolean
+
+    ' Mapované (výpočtové) konce prvkov: napr. FromBusC(k) = BusToNode(FromBus(k)).
+    ' Kŕmia sa nimi BuildYBus/RunNRPhase/BuildShortCircuitMatrix - jadrá výpočtov
+    ' samotné sa nemenia, len dostávajú uzly na úrovni supernodov.
+    Dim FromBusC() As Long, ToBusC() As Long
+    Dim TrFromC() As Long, TrToC() As Long
+    Dim ReaktorFromC() As Long, ReaktorToC() As Long
+    Dim DifReaktorFromC() As Long, DifReaktorToC() As Long
+    Dim SwFromC() As Long, SwToC() As Long
+    Dim CompBusC() As Long, MotorBusC() As Long
+    Dim GenTermBusC() As Long
+    Dim CompZeroG() As Double
 
     ' Uloženie pôvodných nastavení Excelu (obnovíme v Cleanup aj ErrHandler)
     prevCalc = Application.Calculation
@@ -270,23 +294,83 @@ Public Sub runCALC()
                 Vmag(i) = 0#
             End If
         Next i
+    End If
 
-        ' Rozšírenie modelu o generátory: fantómové PV uzly pre EMF, injekcia pre PQ
-        Call ApplyGeneratorModel(nBuses, BusNames, BusTypes, BusBaseKV, _
-                                 Vmag, Vang, Pspec, Qspec, IsBusIsolated, _
-                                 nGens, GenName, GenTermBus, GenMode, GenStatus, GenRa, GenXs, _
+    ' Redukcia uzlov pre spínače (bus fusion podľa pandapower) - spoločná pre load-flow
+    ' aj skraty. Pri reduceMode=False sa nastaví identita (BusToNode(i)=i, nNodes=nBuses)
+    ' a správanie je zhodné s pôvodnou impedančnou vetvou spínačov.
+    Call LoadSwitchReductionSettings(reduceMode, fuseThrOhm)
+    If reduceMode Then
+        Call BuildNodeReduction(nBuses, BusNames, BusTypes, BusBaseKV, Vmag, Vang, Pspec, Qspec, IsBusIsolated, _
+                                nSwitches, SwitchName, SwFrom, SwTo, SwR, SwX, SwStatus, _
+                                fuseThrOhm, SBase_MVA, _
+                                BusToNode, nNodes, NodeNames, NodeTypes, NodeBaseKV, NodeVmag, NodeVang, _
+                                NodePspec, NodeQspec, IsNodeIsolated, SwFused)
+    Else
+        nNodes = nBuses
+        ReDim BusToNode(1 To nBuses)
+        For i = 1 To nBuses: BusToNode(i) = i: Next i
+        NodeNames = BusNames
+        NodeTypes = BusTypes
+        NodeBaseKV = BusBaseKV
+        NodeVmag = Vmag
+        NodeVang = Vang
+        NodePspec = Pspec
+        NodeQspec = Qspec
+        IsNodeIsolated = IsBusIsolated
+        If nSwitches > 0 Then
+            ReDim SwFused(1 To nSwitches)
+        Else
+            ReDim SwFused(0 To 0)
+        End If
+    End If
+
+    ' Mapovanie koncov prvkov na výpočtové uzly (pri reduceMode=False je to identita)
+    ReDim FromBusC(1 To nBranches): ReDim ToBusC(1 To nBranches)
+    For i = 1 To nBranches
+        FromBusC(i) = BusToNode(FromBus(i)): ToBusC(i) = BusToNode(ToBus(i))
+    Next i
+    ReDim TrFromC(1 To nTrafo): ReDim TrToC(1 To nTrafo)
+    For i = 1 To nTrafo
+        TrFromC(i) = BusToNode(TrFrom(i)): TrToC(i) = BusToNode(TrTo(i))
+    Next i
+    ReDim ReaktorFromC(1 To nReaktory): ReDim ReaktorToC(1 To nReaktory)
+    For i = 1 To nReaktory
+        ReaktorFromC(i) = BusToNode(ReaktorFrom(i)): ReaktorToC(i) = BusToNode(ReaktorTo(i))
+    Next i
+    ReDim DifReaktorFromC(1 To nDifReaktory): ReDim DifReaktorToC(1 To nDifReaktory)
+    For i = 1 To nDifReaktory
+        DifReaktorFromC(i) = BusToNode(DifReaktorFrom(i)): DifReaktorToC(i) = BusToNode(DifReaktorTo(i))
+    Next i
+    ReDim SwFromC(1 To nSwitches): ReDim SwToC(1 To nSwitches)
+    For i = 1 To nSwitches
+        SwFromC(i) = BusToNode(SwFrom(i)): SwToC(i) = BusToNode(SwTo(i))
+    Next i
+    ReDim CompBusC(1 To nComp)
+    For i = 1 To nComp: CompBusC(i) = BusToNode(CompBus(i)): Next i
+    ReDim MotorBusC(1 To nMotors)
+    For i = 1 To nMotors: MotorBusC(i) = BusToNode(MotorBus(i)): Next i
+    ReDim GenTermBusC(1 To nGens)
+    For i = 1 To nGens: GenTermBusC(i) = BusToNode(GenTermBus(i)): Next i
+
+    If modeNum = 1 Then
+        ' Rozšírenie modelu o generátory: fantómové PV uzly pre EMF, injekcia pre PQ.
+        ' Vstupuje na úrovni výpočtových uzlov (supernodov), nie pôvodných zberníc.
+        Call ApplyGeneratorModel(nNodes, NodeNames, NodeTypes, NodeBaseKV, _
+                                 NodeVmag, NodeVang, NodePspec, NodeQspec, IsNodeIsolated, _
+                                 nGens, GenName, GenTermBusC, GenMode, GenStatus, GenRa, GenXs, _
                                  GenP, GenQref, GenEmag, GenPint, _
                                  nBusNR, BusNamesNR, BusTypesNR, BusBaseKVNR, _
                                  VmagNR, VangNR, PspecNR, QspecNR, IsBusIsolatedNR, _
                                  GenPhantomIdx, nGenBr, GenBrFrom, GenBrTo, GenBrR, GenBrX)
 
-        Call BuildYBus(nBusNR, nBranches, FromBus, ToBus, R, X, BranchStatus, Bshunt, _
-                       nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
-                       nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, _
-                       nReaktory, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, _
-                       nDifReaktory, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, _
-                       nComp, CompBus, CompB, CompStatus, _
-                       nMotors, MotorBus, MotorG, MotorB, MotorStatus, _
+        Call BuildYBus(nBusNR, nBranches, FromBusC, ToBusC, R, X, BranchStatus, Bshunt, _
+                       nSwitches, SwFromC, SwToC, SwR, SwX, SwStatus, _
+                       nTrafo, TrFromC, TrToC, TrR, TrX, TrG, TrB, TrRatio, _
+                       nReaktory, ReaktorFromC, ReaktorToC, ReaktorR, ReaktorX, _
+                       nDifReaktory, DifReaktorFromC, DifReaktorToC, DifReaktorR, DifReaktorX, _
+                       nComp, CompBusC, CompB, CompStatus, _
+                       nMotors, MotorBusC, MotorG, MotorB, MotorStatus, _
                        nGenBr, GenBrFrom, GenBrTo, GenBrR, GenBrX, _
                        BusNamesNR, IsBusIsolatedNR, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, _
                        Y, G, B)
@@ -328,16 +412,20 @@ Public Sub runCALC()
             End If
         End If
 
-        Call BuildShortCircuitMatrix(nBuses, nBranches, FromBus, ToBus, R, X, BranchStatus, _
-                                     nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
-                                     nTrafo, TrFrom, TrTo, TrR, TrX, TrRatio, TrKT, _
-                                     nReaktory, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, _
-                                     nDifReaktory, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, _
-                                     nMotors, MotorBus, MotorR, MotorXk, MotorStatus, _
-                                     nGens, GenTermBus, GenStatus, GenRa, GenXd, GenKG, _
-                                     BusNames, BusTypes, BusBaseKV, Ik_input, SBase_MVA, _
+        ' Ik_input premietnuté na výpočtový uzol slacku (jediný relevantný záznam)
+        ReDim Ik_inputN(1 To nNodes)
+        If slackIdx > 0 Then Ik_inputN(BusToNode(slackIdx)) = Ik_input(slackIdx)
+
+        Call BuildShortCircuitMatrix(nNodes, nBranches, FromBusC, ToBusC, R, X, BranchStatus, _
+                                     nSwitches, SwFromC, SwToC, SwR, SwX, SwStatus, _
+                                     nTrafo, TrFromC, TrToC, TrR, TrX, TrRatio, TrKT, _
+                                     nReaktory, ReaktorFromC, ReaktorToC, ReaktorR, ReaktorX, _
+                                     nDifReaktory, DifReaktorFromC, DifReaktorToC, DifReaktorR, DifReaktorX, _
+                                     nMotors, MotorBusC, MotorR, MotorXk, MotorStatus, _
+                                     nGens, GenTermBusC, GenStatus, GenRa, GenXd, GenKG, _
+                                     NodeNames, NodeTypes, NodeBaseKV, Ik_inputN, SBase_MVA, _
                                      caseMax, RXfeeder, _
-                                     IsBusIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, _
+                                     IsNodeIsolated, IsBranchIsolated, IsTrafoIsolated, IsReaktorIsolated, IsDifReaktorIsolated, IsSwitchIsolated, _
                                      Ysc)
     End If
 
@@ -361,19 +449,37 @@ Public Sub runCALC()
 
         Call RunNRPhase(SBase_MVA, nBusNR, nBuses, BusNamesNR, BusTypesNR, BusBaseKVNR, _
                         VmagNR, VangNR, PspecNR, QspecNR, G, B, _
-                        nBranches, FromBus, ToBus, R, X, BranchStatus, Bshunt, _
-                        nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, _
-                        nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, _
-                        nReaktory, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, _
-                        nDifReaktory, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, _
-                        nComp, CompBus, CompB, CompStatus, _
-                        nMotors, MotorBus, MotorR, MotorG, MotorB, MotorStatus, _
-                        IsBusIsolatedNR, _
+                        nBranches, FromBusC, ToBusC, R, X, BranchStatus, Bshunt, _
+                        nSwitches, SwFromC, SwToC, SwR, SwX, SwStatus, _
+                        nTrafo, TrFromC, TrToC, TrR, TrX, TrG, TrB, TrRatio, _
+                        nReaktory, ReaktorFromC, ReaktorToC, ReaktorR, ReaktorX, _
+                        nDifReaktory, DifReaktorFromC, DifReaktorToC, DifReaktorR, DifReaktorX, _
+                        nComp, CompBusC, CompB, CompStatus, _
+                        nMotors, MotorBusC, MotorR, MotorG, MotorB, MotorStatus, _
+                        IsBusIsolatedNR, BusToNode, _
                         wsIdx.Range("I6"))
 
         ' Výsledky generátorov (δ, Q_gen, I, Ploss) do listu "generatory"
-        Call WriteGeneratorResults(nGens, GenName, GenTermBus, GenMode, GenStatus, GenRa, GenXs, _
-                                   GenP, GenQref, GenPhantomIdx, VmagNR, VangNR, BusBaseKV, SBase_MVA)
+        Call WriteGeneratorResults(nGens, GenName, GenTermBusC, GenMode, GenStatus, GenRa, GenXs, _
+                                   GenP, GenQref, GenPhantomIdx, VmagNR, VangNR, NodeBaseKV, SBase_MVA)
+
+        ' Prúdy fúzovaných spínačov (KCL rozklad vo vnútri supernodov) - len v režime
+        ' redukcia. Nefúzované spínače majú prúd už zapísaný z RunNRPhase (WriteSwitchResults).
+        If reduceMode And nSwitches > 0 Then
+            Call SwitchKclBegin(nBuses, BusToNode, BusBaseKV, SBase_MVA, VmagNR, VangNR, _
+                                nSwitches, SwitchName, SwFrom, SwTo, SwR, SwX, SwFused)
+            Call SwitchKclAddSeries(nBranches, FromBus, ToBus, R, X, BranchStatus, True, IsBranchIsolated, Bshunt, True)
+            Call SwitchKclAddSeries(nSwitches, SwFrom, SwTo, SwR, SwX, SwStatus, True, IsSwitchIsolated, SwStatus, False)
+            Call SwitchKclAddSeries(nReaktory, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, ReaktorR, False, IsReaktorIsolated, ReaktorR, False)
+            Call SwitchKclAddSeries(nDifReaktory, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, DifReaktorR, False, IsDifReaktorIsolated, DifReaktorR, False)
+            Call SwitchKclAddTrafo(nTrafo, TrFrom, TrTo, TrR, TrX, TrG, TrB, TrRatio, IsTrafoIsolated)
+            ReDim CompZeroG(1 To nComp)
+            Call SwitchKclAddShunt(nComp, CompBus, CompZeroG, CompB, CompStatus)
+            Call SwitchKclAddShunt(nMotors, MotorBus, MotorG, MotorB, MotorStatus)
+            Call SwitchKclAddLoads(Pspec, Qspec)
+            Call SwitchKclAddGens(nGens, GenTermBus, GenMode, GenStatus, GenRa, GenXs, GenP, GenQref, GenPhantomIdx)
+            Call SwitchKclSolveAndWrite()
+        End If
 
         Call WritePhaseTime(wsIdx.Range("J5"), PhaseElapsed)
         Call EndPhaseTimer
@@ -386,7 +492,14 @@ Public Sub runCALC()
 
         Call BeginPhaseTimer(wsIdx.Range("J7"))
 
-        Call SolveShortCircuit(Ysc, nBuses, BusNames, BusBaseKV, SBase_MVA, caseMax, IsBusIsolated, Ik_result, ip_result, Z_inv)
+        Call SolveShortCircuit(Ysc, nNodes, NodeNames, NodeBaseKV, SBase_MVA, caseMax, IsNodeIsolated, Ik_resultN, ip_resultN, Z_inv)
+
+        ' Expanzia výsledkov z výpočtových uzlov (supernodov) na pôvodné uzly
+        ReDim Ik_result(1 To nBuses): ReDim ip_result(1 To nBuses)
+        For i = 1 To nBuses
+            Ik_result(i) = Ik_resultN(BusToNode(i))
+            ip_result(i) = ip_resultN(BusToNode(i))
+        Next i
         Call WriteShortCircuitResults(Ik_result, ip_result, nBuses)
 
         ' Vetvové príspevky pre zvolený uzol poruchy (index!G7, voliteľné).
@@ -400,23 +513,24 @@ Public Sub runCALC()
             If IsBusIsolated(faultBusIdx) Then
                 Err.Raise vbObjectError + 33, , "Uzol poruchy '" & faultBusName & "' z index!G7 je izolovaný od slacku."
             End If
-            Call BranchContribBegin(faultBusIdx, faultBusName, nBuses, Z_inv, caseMax, SBase_MVA, BusBaseKV, _
+            faultNode = BusToNode(faultBusIdx)
+            Call BranchContribBegin(faultNode, faultBusName, nNodes, Z_inv, caseMax, SBase_MVA, NodeBaseKV, _
                                     nBranches + nSwitches + nTrafo + nReaktory + nDifReaktory + nMotors + nGens)
-            Call BranchContribSeries("vedenie", nBranches, BranchName, FromBus, ToBus, R, X, _
-                                     BranchStatus, True, IsBranchIsolated, BusNames, BusBaseKV)
-            Call BranchContribTrafo(nTrafo, TrName, TrFrom, TrTo, TrR, TrX, TrRatio, TrKT, _
-                                    IsTrafoIsolated, BusNames, BusBaseKV)
-            Call BranchContribSeries("spinac", nSwitches, SwitchName, SwFrom, SwTo, SwR, SwX, _
-                                     SwStatus, True, IsSwitchIsolated, BusNames, BusBaseKV)
-            Call BranchContribSeries("reaktor", nReaktory, ReaktorName, ReaktorFrom, ReaktorTo, ReaktorR, ReaktorX, _
-                                     IsReaktorIsolated, False, IsReaktorIsolated, BusNames, BusBaseKV)
-            Call BranchContribSeries("dif.reaktor", nDifReaktory, DifReaktorName, DifReaktorFrom, DifReaktorTo, DifReaktorR, DifReaktorX, _
-                                     IsDifReaktorIsolated, False, IsDifReaktorIsolated, BusNames, BusBaseKV)
-            Call BranchContribMotors(nMotors, MotorName, MotorBus, MotorR, MotorXk, MotorStatus, _
-                                     IsBusIsolated, BusNames, BusBaseKV)
-            Call BranchContribGens(nGens, GenName, GenTermBus, GenStatus, GenRa, GenXd, GenKG, _
-                                   IsBusIsolated, BusNames, BusBaseKV)
-            Call BranchContribFinish(faultBusName, CDbl(Ik_result(faultBusIdx)), CDbl(ip_result(faultBusIdx)))
+            Call BranchContribSeries("vedenie", nBranches, BranchName, FromBusC, ToBusC, R, X, _
+                                     BranchStatus, True, IsBranchIsolated, NodeNames, NodeBaseKV)
+            Call BranchContribTrafo(nTrafo, TrName, TrFromC, TrToC, TrR, TrX, TrRatio, TrKT, _
+                                    IsTrafoIsolated, NodeNames, NodeBaseKV)
+            Call BranchContribSeries("spinac", nSwitches, SwitchName, SwFromC, SwToC, SwR, SwX, _
+                                     SwStatus, True, IsSwitchIsolated, NodeNames, NodeBaseKV)
+            Call BranchContribSeries("reaktor", nReaktory, ReaktorName, ReaktorFromC, ReaktorToC, ReaktorR, ReaktorX, _
+                                     IsReaktorIsolated, False, IsReaktorIsolated, NodeNames, NodeBaseKV)
+            Call BranchContribSeries("dif.reaktor", nDifReaktory, DifReaktorName, DifReaktorFromC, DifReaktorToC, DifReaktorR, DifReaktorX, _
+                                     IsDifReaktorIsolated, False, IsDifReaktorIsolated, NodeNames, NodeBaseKV)
+            Call BranchContribMotors(nMotors, MotorName, MotorBusC, MotorR, MotorXk, MotorStatus, _
+                                     IsNodeIsolated, NodeNames, NodeBaseKV)
+            Call BranchContribGens(nGens, GenName, GenTermBusC, GenStatus, GenRa, GenXd, GenKG, _
+                                   IsNodeIsolated, NodeNames, NodeBaseKV)
+            Call BranchContribFinish(faultBusName, CDbl(Ik_resultN(faultNode)), CDbl(ip_resultN(faultNode)))
         End If
 
         ' Varovania z fázy 2/3 (napájač, kappa) - report je už zapísaný z fázy 1
